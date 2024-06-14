@@ -32,6 +32,22 @@ const DEFAULT_SETTINGS: BooksidianSettings = {
 
 const VIEW_TYPE_BOOKSIDIAN = "booksidian-view";
 
+async function copyFolderToFlat(destination: string, source: string) {
+    const entries = await fs.promises.readdir(source, { withFileTypes: true });
+    await fs.promises.mkdir(destination, { recursive: true });
+
+    for (let entry of entries) {
+        const srcPath = path.join(source, entry.name);
+        const destPath = path.join(destination, entry.name);
+
+        if (entry.isDirectory()) {
+            await copyFolderToFlat(destination, srcPath);
+        } else {
+            await fs.promises.copyFile(srcPath, destPath);
+        }
+    }
+}
+
 class BooksidianView extends ItemView {
     plugin: Booksidian;
     containerEl: HTMLElement;
@@ -272,26 +288,35 @@ export default class Booksidian extends Plugin {
             return;
         }
     
-        const markdown = await this.app.vault.read(activeFile);
+        let markdown = await this.app.vault.read(activeFile);
         const pandocPath = this.settings.pandocPath;
         const basePath = (this.app.vault.adapter as any).getBasePath();
-        const tempMarkdownPath = path.join(basePath, 'temp.md');
+        const tempDir = path.join(this.settings.outputFolderPath, 'temp');
+        const markdownFilePath = path.join(basePath, activeFile.path);
+    
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+    
+        const tempMarkdownPath = path.join(tempDir, 'temp.md');
     
         try {
+            markdown = await this.copyReferencedImages(markdown, tempDir, markdownFilePath);
             fs.writeFileSync(tempMarkdownPath, markdown);
     
+            // Copier les templates et les fonts nécessaires dans le dossier temporaire
+            await this.copyTemplatesAndFonts(tempDir);
+    
+            // Utiliser le dossier temporaire pour toutes les opérations suivantes
             const yamlData = this.app.metadataCache.getFileCache(activeFile)?.frontmatter;
-            const args = `-f markdown -t latex "${tempMarkdownPath}" -o "${tempMarkdownPath.replace('.md', '.tex')}"`;
+            const args = `-f markdown -t latex "${tempMarkdownPath}" -o "${path.join(tempDir, activeFile.basename)}.tex"`;
     
             const { stdout, stderr } = await execPromise(`${pandocPath} ${args}`, { encoding: 'utf8' });
             if (stderr) {
                 throw new Error(stderr);
             }
     
-            const configDir = this.app.vault.configDir;
-            const pluginPath = path.join(basePath, configDir, 'plugins', this.manifest.id);
-            const templateFolderPath = path.join(pluginPath, this.settings.templateFolderPath);
-            const latexTemplatePath = path.join(templateFolderPath, this.settings.latexTemplatePath);
+            const latexTemplatePath = path.join(tempDir, this.settings.latexTemplatePath);
     
             if (!latexTemplatePath) {
                 throw new Error('No LaTeX template path specified');
@@ -304,31 +329,31 @@ export default class Booksidian extends Plugin {
                 template = template.replace(new RegExp(`\\{\\{${field}\\}\\}`, 'g'), value);
             });
     
-            const contentPath = tempMarkdownPath.replace('.md', '.tex');
+            const contentPath = path.join(tempDir, `${activeFile.basename}.tex`);
             const content = await fs.promises.readFile(contentPath, 'utf8');
             template = template.replace('\\input{content.tex}', content);
     
-            const latexFilePath = path.join(templateFolderPath, `${activeFile.basename}.tex`);
+            const latexFilePath = path.join(tempDir, `${activeFile.basename}.tex`);
             await fs.promises.writeFile(latexFilePath, template);
     
             const xelatexPath = this.settings.xelatexPath;
-            const outputFolderPath = this.settings.outputFolderPath || templateFolderPath;
-            const pdfFilePath = path.join(outputFolderPath, `${activeFile.basename}.pdf`);
-            const pdfArgs = `${xelatexPath} -output-directory="${outputFolderPath}" "${latexFilePath}"`;
+            const pdfFilePath = path.join(this.settings.outputFolderPath, `${activeFile.basename}.pdf`);
+            const pdfArgs = `${xelatexPath} -output-directory="${tempDir}" "${latexFilePath}"`;
     
-            const { stderr: pdfStderr } = await execPromise(pdfArgs, { cwd: templateFolderPath });
+            const { stderr: pdfStderr } = await execPromise(pdfArgs, { cwd: tempDir });
             if (pdfStderr) {
                 throw new Error(pdfStderr);
             }
     
+            fs.copyFileSync(path.join(tempDir, `${activeFile.basename}.pdf`), pdfFilePath);
             new Notice(`Converted to PDF successfully at: ${pdfFilePath}`);
     
             if (this.settings.impositionPath !== 'non') {
-                await this.applyImposition(pdfFilePath, outputFolderPath);
+                await this.applyImposition(pdfFilePath, this.settings.outputFolderPath);
             }
     
-            const logFilePath = path.join(outputFolderPath, `${activeFile.basename}.log`);
-            const auxFilePath = path.join(outputFolderPath, `${activeFile.basename}.aux`);
+            const logFilePath = path.join(tempDir, `${activeFile.basename}.log`);
+            const auxFilePath = path.join(tempDir, `${activeFile.basename}.aux`);
             this.cleanupFiles([latexFilePath, logFilePath, auxFilePath]);
     
         } catch (error) {
@@ -336,10 +361,79 @@ export default class Booksidian extends Plugin {
             console.error('Error during export:', error);
             new Notice(`Error during export: ${errorMessage}`);
         } finally {
-            fs.unlinkSync(tempMarkdownPath);
+            this.cleanupFiles([tempMarkdownPath]);
+            // Nettoyer le dossier temporaire
+            fs.rmdirSync(tempDir, { recursive: true });
         }
     }
     
+    
+    
+    
+
+    async copyTemplatesAndFonts(tempDir: string) {
+        const basePath = (this.app.vault.adapter as any).getBasePath();
+        const configDir = this.app.vault.configDir;
+        const pluginPath = path.join(basePath, configDir, 'plugins', this.manifest.id);
+        const templateFolderPath = path.join(pluginPath, this.settings.templateFolderPath);
+    
+        if (fs.existsSync(templateFolderPath)) {
+            try {
+                await copyFolderToFlat(tempDir, templateFolderPath);
+            } catch (err) {
+                console.error(`Failed to copy folder: ${templateFolderPath} to ${tempDir}`, err);
+                new Notice(`Failed to copy folder: ${templateFolderPath}`);
+            }
+        }
+    }
+    
+
+    async copyReferencedImages(markdown: string, tempDir: string, markdownFilePath: string): Promise<string> {
+        const imageRegex = /!\[\[([^\]]+)\]\]/g;
+        const markdownDir = path.dirname(markdownFilePath);
+        let match;
+        const updatedMarkdown = markdown.replace(imageRegex, (match, p1) => {
+            const srcPath = path.isAbsolute(p1) ? p1 : path.join((this.app.vault.adapter as any).getBasePath(), p1);
+            const altSrcPath = path.join(markdownDir, p1);  // Path relative to the markdown file
+            const destPath = path.join(tempDir, path.basename(p1));
+            
+            // Check if the image exists at either location and copy it
+            const existsAtSrcPath = fs.existsSync(srcPath);
+            const existsAtAltSrcPath = fs.existsSync(altSrcPath);
+            
+            if (existsAtSrcPath || existsAtAltSrcPath) {
+                const finalSrcPath = existsAtSrcPath ? srcPath : altSrcPath;
+                fs.promises.copyFile(finalSrcPath, destPath).catch(err => {
+                    console.error(`Failed to copy image: ${finalSrcPath} to ${destPath}`, err);
+                    new Notice(`Failed to copy image: ${finalSrcPath}`);
+                });
+                return `![](${path.basename(p1)})`;
+            } else {
+                console.error(`Image not found at either location: ${srcPath}, ${altSrcPath}`);
+                new Notice(`Image not found: ${p1}`);
+                return match;
+            }
+        });
+        return updatedMarkdown;
+    }
+    
+    
+    
+
+    async cleanupFiles(files: string[]) {
+        for (const file of files) {
+            try {
+                if (fs.existsSync(file)) {
+                    await fs.promises.unlink(file);
+                    console.log(`Deleted file: ${file}`);
+                } else {
+                    console.log(`File not found, so not deleted: ${file}`);
+                }
+            } catch (error) {
+                console.error(`Failed to delete file: ${file}`, error);
+            }
+        }
+    }
 
     async applyImposition(pdfFilePath: string, outputFolderPath: string) {
         const basePath = (this.app.vault.adapter as any).getBasePath();
@@ -408,9 +502,6 @@ export default class Booksidian extends Plugin {
         }
     }
     
-    
-    
-
     async mergePdfs(inputFiles: string[], outputPdf: string) {
         const existingFiles = inputFiles.filter(file => fs.existsSync(file));
     
@@ -510,24 +601,6 @@ export default class Booksidian extends Plugin {
         }
     
         return imposedPdfPath;
-    }
-    
-    
-    
-
-    async cleanupFiles(files: string[]) {
-        for (const file of files) {
-            try {
-                if (fs.existsSync(file)) {
-                    await fs.promises.unlink(file);
-                    console.log(`Deleted file: ${file}`);
-                } else {
-                    console.log(`File not found, so not deleted: ${file}`);
-                }
-            } catch (error) {
-                console.error(`Failed to delete file: ${file}`, error);
-            }
-        }
     }
 
     async splitPdf(inputPdf: string, outputPattern: string, startPage: number, endPage: number) {
