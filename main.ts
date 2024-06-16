@@ -14,6 +14,7 @@ interface BooksidianSettings {
     xelatexPath: string;
     outputFolderPath: string;
     impositionPath: string;
+    keepTempFolder: boolean; // Ajout de la propriété
 }
 
 interface FrontMatter {
@@ -27,7 +28,8 @@ const DEFAULT_SETTINGS: BooksidianSettings = {
     templateFolderPath: 'templates',
     xelatexPath: 'xelatex',
     outputFolderPath: '',
-    impositionPath: 'non'
+    impositionPath: 'non',
+    keepTempFolder: false // Valeur par défaut
 }
 
 const VIEW_TYPE_BOOKSIDIAN = "booksidian-view";
@@ -153,6 +155,14 @@ class BooksidianView extends ItemView {
                 await this.plugin.saveData(this.plugin.settings);
             }
         };
+
+        const keepTempFolderCheckbox = containerEl.createEl('input', { type: 'checkbox' });
+        keepTempFolderCheckbox.checked = this.plugin.settings.keepTempFolder;
+        keepTempFolderCheckbox.onchange = async () => {
+            this.plugin.settings.keepTempFolder = keepTempFolderCheckbox.checked;
+            await this.plugin.saveData(this.plugin.settings);
+        };
+        containerEl.createEl('label', { text: 'Conserver le dossier temporaire' }).appendChild(keepTempFolderCheckbox);
 
         const exportButton = containerEl.createEl('button', { text: 'Exporter' });
         exportButton.onclick = () => this.plugin.exportToLatex();
@@ -362,10 +372,13 @@ export default class Booksidian extends Plugin {
             new Notice(`Error during export: ${errorMessage}`);
         } finally {
             this.cleanupFiles([tempMarkdownPath]);
-            // Nettoyer le dossier temporaire
-            fs.rmdirSync(tempDir, { recursive: true });
+            // Nettoyer le dossier temporaire si nécessaire
+            if (!this.settings.keepTempFolder) {
+                fs.rmdirSync(tempDir, { recursive: true });
+            }
         }
     }
+    
     
     
     
@@ -423,6 +436,9 @@ export default class Booksidian extends Plugin {
     async cleanupFiles(files: string[]) {
         for (const file of files) {
             try {
+                if (this.settings.keepTempFolder && file.endsWith('.tex')) {
+                    continue;
+                }
                 if (fs.existsSync(file)) {
                     await fs.promises.unlink(file);
                     console.log(`Deleted file: ${file}`);
@@ -434,6 +450,7 @@ export default class Booksidian extends Plugin {
             }
         }
     }
+    
 
     async applyImposition(pdfFilePath: string, outputFolderPath: string) {
         const basePath = (this.app.vault.adapter as any).getBasePath();
@@ -727,5 +744,15 @@ class BooksidianSettingTab extends PluginSettingTab {
                     await this.plugin.saveData(this.plugin.settings);
                 });
             });
+
+        new Setting(containerEl)
+            .setName('Keep Temp Folder')
+            .setDesc('Keep the temporary folder after export')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.keepTempFolder)
+                .onChange(async (value) => {
+                    this.plugin.settings.keepTempFolder = value;
+                    await this.plugin.saveData(this.plugin.settings);
+                }));
     }
 }
