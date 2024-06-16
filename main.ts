@@ -18,11 +18,6 @@ interface BooksidianSettings {
     [key: string]: boolean | string;
 }
 
-interface FrontMatter {
-    titre?: string;
-    auteur?: string;
-}
-
 const DEFAULT_SETTINGS: BooksidianSettings = {
     pandocPath: 'pandoc',
     latexTemplatePath: '',
@@ -34,22 +29,6 @@ const DEFAULT_SETTINGS: BooksidianSettings = {
 }
 
 const VIEW_TYPE_BOOKSIDIAN = "booksidian-view";
-
-async function copyFolderToFlat(destination: string, source: string) {
-    const entries = await fs.promises.readdir(source, { withFileTypes: true });
-    await fs.promises.mkdir(destination, { recursive: true });
-
-    for (let entry of entries) {
-        const srcPath = path.join(source, entry.name);
-        const destPath = path.join(destination, entry.name);
-
-        if (entry.isDirectory()) {
-            await copyFolderToFlat(destination, srcPath);
-        } else {
-            await fs.promises.copyFile(srcPath, destPath);
-        }
-    }
-}
 
 class BooksidianView extends ItemView {
     plugin: Booksidian;
@@ -79,7 +58,6 @@ class BooksidianView extends ItemView {
     }
 
     private transformToggleName(toggle: string): string {
-        // Remove the "show" prefix and convert the rest to title case
         const name = toggle.replace(/^show/, '');
         return name.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
     }
@@ -186,11 +164,7 @@ class BooksidianView extends ItemView {
     }
 
     async updateDynamicFields(templateName: string) {
-        const basePath = (this.plugin.app.vault.adapter as any).getBasePath();
-        const configDir = this.plugin.app.vault.configDir;
-        const pluginPath = path.join(basePath, configDir, 'plugins', this.plugin.manifest.id);
-        const templateFolderPath = path.join(pluginPath, this.plugin.settings.templateFolderPath);
-        const templatePath = path.join(templateFolderPath, templateName);
+        const templatePath = this.plugin.getTemplatePath(templateName);
     
         const fields = await this.plugin.getDynamicFieldsFromTemplate(templatePath);
         this.dynamicFieldsContainer.empty();
@@ -208,7 +182,7 @@ class BooksidianView extends ItemView {
         if (toggles.length > 0) {
             this.toggleFieldsContainer.createEl('label', { text: 'Options :' });
             toggles.forEach(toggle => {
-                const setting = new Setting(this.toggleFieldsContainer)
+                new Setting(this.toggleFieldsContainer)
                     .setName(this.transformToggleName(toggle))
                     .addToggle(toggleComponent => {
                         toggleComponent.setValue(Boolean(this.plugin.settings[toggle]))
@@ -220,14 +194,7 @@ class BooksidianView extends ItemView {
             });
         }
     }
-    
-    
-    
 }
-
-
-
-
 
 export default class Booksidian extends Plugin {
     settings: BooksidianSettings = DEFAULT_SETTINGS;
@@ -238,8 +205,8 @@ export default class Booksidian extends Plugin {
         console.log('Loading Booksidian plugin');
 
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-        this.templates = await this.loadTemplates(this.settings.templateFolderPath);
-        this.impositions = await this.loadImpositions('imposition');
+        this.templates = await this.loadTemplates();
+        this.impositions = await this.loadImpositions();
 
         this.registerView(
             VIEW_TYPE_BOOKSIDIAN,
@@ -249,6 +216,18 @@ export default class Booksidian extends Plugin {
         this.app.workspace.onLayoutReady(this.initLeaf.bind(this));
 
         this.addSettingTab(new BooksidianSettingTab(this.app, this));
+    }
+
+    getBasePaths() {
+        const basePath = (this.app.vault.adapter as any).getBasePath();
+        const configDir = this.app.vault.configDir;
+        const pluginPath = path.join(basePath, configDir, 'plugins', this.manifest.id);
+        return { basePath, configDir, pluginPath };
+    }
+
+    getTemplatePath(templateName: string) {
+        const { pluginPath } = this.getBasePaths();
+        return path.join(pluginPath, this.settings.templateFolderPath, templateName);
     }
 
     initLeaf() {
@@ -264,56 +243,28 @@ export default class Booksidian extends Plugin {
         this.app.workspace.getLeavesOfType(VIEW_TYPE_BOOKSIDIAN).forEach(leaf => leaf.detach());
     }
 
-    async loadTemplates(folderPath: string): Promise<string[]> {
-        const templates: string[] = [];
-        const basePath = (this.app.vault.adapter as any).getBasePath();
-        const configDir = this.app.vault.configDir;
-        const pluginPath = path.join(basePath, configDir, 'plugins', this.manifest.id);
-        const fullPath = path.join(pluginPath, folderPath);
-
-        console.log(`Checking for templates in: ${fullPath}`);
-
-        if (fs.existsSync(fullPath)) {
-            const files = fs.readdirSync(fullPath);
-            console.log(`Files found in template folder: ${files}`);
-
-            files.forEach(file => {
-                if (file.endsWith('.tex')) {
-                    templates.push(file);
-                }
-            });
-            console.log(`Templates loaded: ${templates}`);
-        } else {
-            new Notice(`Template folder not found: ${fullPath}`);
-        }
-
-        return templates;
+    async loadTemplates(): Promise<string[]> {
+        return this.loadFilesFromFolder(this.settings.templateFolderPath, '.tex');
     }
 
-    async loadImpositions(folderPath: string): Promise<string[]> {
-        const impositions: string[] = [];
-        const basePath = (this.app.vault.adapter as any).getBasePath();
-        const configDir = this.app.vault.configDir;
-        const pluginPath = path.join(basePath, configDir, 'plugins', this.manifest.id);
+    async loadImpositions(): Promise<string[]> {
+        return this.loadFilesFromFolder('imposition', '.tex');
+    }
+
+    async loadFilesFromFolder(folderPath: string, extension: string): Promise<string[]> {
+        const { pluginPath } = this.getBasePaths();
         const fullPath = path.join(pluginPath, folderPath);
 
-        console.log(`Checking for impositions in: ${fullPath}`);
+        console.log(`Checking for files in: ${fullPath}`);
 
         if (fs.existsSync(fullPath)) {
             const files = fs.readdirSync(fullPath);
-            console.log(`Files found in imposition folder: ${files}`);
-
-            files.forEach(file => {
-                if (file.endsWith('.tex')) {
-                    impositions.push(file);
-                }
-            });
-            console.log(`Impositions loaded: ${impositions}`);
+            console.log(`Files found in folder: ${files}`);
+            return files.filter(file => file.endsWith(extension));
         } else {
-            new Notice(`Imposition folder not found: ${fullPath}`);
+            new Notice(`Folder not found: ${fullPath}`);
+            return [];
         }
-
-        return impositions;
     }
 
     async getDynamicFieldsFromTemplate(templatePath: string): Promise<string[]> {
@@ -337,8 +288,6 @@ export default class Booksidian extends Plugin {
         }
         return Array.from(toggles);
     }
-    
-    
 
     async exportToLatex() {
         const activeFile = this.app.workspace.getActiveFile();
@@ -346,46 +295,45 @@ export default class Booksidian extends Plugin {
             new Notice('No active file to export');
             return;
         }
-    
+
         let markdown = await this.app.vault.read(activeFile);
         const pandocPath = this.settings.pandocPath;
-        const basePath = (this.app.vault.adapter as any).getBasePath();
+        const { basePath } = this.getBasePaths();
         const tempDir = path.join(this.settings.outputFolderPath, 'temp');
         const markdownFilePath = path.join(basePath, activeFile.path);
-    
+
         if (!fs.existsSync(tempDir)) {
             fs.mkdirSync(tempDir, { recursive: true });
         }
-    
+
         const tempMarkdownPath = path.join(tempDir, 'temp.md');
-    
+
         try {
             markdown = await this.copyReferencedImages(markdown, tempDir, markdownFilePath);
             fs.writeFileSync(tempMarkdownPath, markdown);
-    
+
             await this.copyTemplatesAndFonts(tempDir);
-    
+
             const yamlData = this.app.metadataCache.getFileCache(activeFile)?.frontmatter;
             const args = `-f markdown -t latex "${tempMarkdownPath}" -o "${path.join(tempDir, activeFile.basename)}.tex"`;
-    
-            const { stdout, stderr } = await execPromise(`${pandocPath} ${args}`, { encoding: 'utf8' });
+
+            const { stderr } = await execPromise(`${pandocPath} ${args}`);
             if (stderr) {
                 throw new Error(stderr);
             }
-    
+
             const latexTemplatePath = path.join(tempDir, this.settings.latexTemplatePath);
-    
             if (!latexTemplatePath) {
                 throw new Error('No LaTeX template path specified');
             }
-    
+
             let template = await fs.promises.readFile(latexTemplatePath, 'utf8');
             const fields = await this.getDynamicFieldsFromTemplate(latexTemplatePath);
             fields.forEach(field => {
                 const value = yamlData?.[field] || field;
                 template = template.replace(new RegExp(`\\{\\{${field}\\}\\}`, 'g'), value);
             });
-    
+
             const toggles = await this.getToggleFieldsFromTemplate(latexTemplatePath);
             toggles.forEach(toggle => {
                 const variableName = toggle.slice(4); // Remove 'show' prefix
@@ -394,60 +342,47 @@ export default class Booksidian extends Plugin {
                 const value = this.settings[toggle] ? `\\${variableName}true` : `\\${variableName}false`;
                 template = template.replace(new RegExp(`\\\\newif\\\\if${variableName}\\b`, 'g'), `\\newif\\if${variableName}\n${value}`);
             });
-    
+
             const contentPath = path.join(tempDir, `${activeFile.basename}.tex`);
             const content = await fs.promises.readFile(contentPath, 'utf8');
             template = template.replace('\\input{content.tex}', content);
-    
+
             const latexFilePath = path.join(tempDir, `${activeFile.basename}.tex`);
             await fs.promises.writeFile(latexFilePath, template);
-    
+
             const xelatexPath = this.settings.xelatexPath;
             const pdfFilePath = path.join(this.settings.outputFolderPath, `${activeFile.basename}.pdf`);
             const pdfArgs = `${xelatexPath} -output-directory="${tempDir}" "${latexFilePath}"`;
-    
+
             const { stderr: pdfStderr } = await execPromise(pdfArgs, { cwd: tempDir });
             if (pdfStderr) {
                 throw new Error(pdfStderr);
             }
-    
+
             fs.copyFileSync(path.join(tempDir, `${activeFile.basename}.pdf`), pdfFilePath);
             new Notice(`Converted to PDF successfully at: ${pdfFilePath}`);
-    
+
             if (this.settings.impositionPath !== 'non') {
                 await this.applyImposition(pdfFilePath, this.settings.outputFolderPath);
             }
-    
-            const logFilePath = path.join(tempDir, `${activeFile.basename}.log`);
-            const auxFilePath = path.join(tempDir, `${activeFile.basename}.aux`);
-            this.cleanupFiles([latexFilePath, logFilePath, auxFilePath]);
-    
+
+            this.cleanupTempFiles([latexFilePath, tempMarkdownPath]);
+
         } catch (error) {
             const errorMessage = (error instanceof Error) ? error.message : String(error);
             console.error('Error during export:', error);
             new Notice(`Error during export: ${errorMessage}`);
         } finally {
-            this.cleanupFiles([tempMarkdownPath]);
             if (!this.settings.keepTempFolder) {
                 fs.rmdirSync(tempDir, { recursive: true });
             }
         }
     }
-    
-    
-    
-    
-    
-    
-    
-    
 
     async copyTemplatesAndFonts(tempDir: string) {
-        const basePath = (this.app.vault.adapter as any).getBasePath();
-        const configDir = this.app.vault.configDir;
-        const pluginPath = path.join(basePath, configDir, 'plugins', this.manifest.id);
+        const { pluginPath } = this.getBasePaths();
         const templateFolderPath = path.join(pluginPath, this.settings.templateFolderPath);
-    
+
         if (fs.existsSync(templateFolderPath)) {
             try {
                 await copyFolderToFlat(tempDir, templateFolderPath);
@@ -486,17 +421,12 @@ export default class Booksidian extends Plugin {
         return updatedMarkdown;
     }
 
-    async cleanupFiles(files: string[]) {
+    async cleanupTempFiles(files: string[]) {
         for (const file of files) {
             try {
-                if (this.settings.keepTempFolder && file.endsWith('.tex')) {
-                    continue;
-                }
                 if (fs.existsSync(file)) {
                     await fs.promises.unlink(file);
                     console.log(`Deleted file: ${file}`);
-                } else {
-                    console.log(`File not found, so not deleted: ${file}`);
                 }
             } catch (error) {
                 console.error(`Failed to delete file: ${file}`, error);
@@ -505,33 +435,29 @@ export default class Booksidian extends Plugin {
     }
 
     async applyImposition(pdfFilePath: string, outputFolderPath: string) {
-        const basePath = (this.app.vault.adapter as any).getBasePath();
-        const configDir = this.app.vault.configDir;
-        const pluginPath = path.join(basePath, configDir, 'plugins', this.manifest.id);
+        const { pluginPath } = this.getBasePaths();
         const impositionFolderPath = path.join(pluginPath, 'imposition');
         const impositionTemplatePath = path.join(impositionFolderPath, this.settings.impositionPath);
-    
-        const pagesPerSegmentMatch = this.settings.impositionPath.match(/(\d+)signature/);
-        const pagesPerSegment = pagesPerSegmentMatch ? parseInt(pagesPerSegmentMatch[1], 10) : 16;
-    
+
+        const pagesPerSegment = this.getPagesPerSegment();
         const numPages = await this.getNumberOfPages(pdfFilePath);
         const segments = Math.ceil(numPages / pagesPerSegment);
         const segmentPattern = path.join(outputFolderPath, `segment-%04d.pdf`);
-    
+
         for (let i = 0; i < segments; i++) {
             const startPage = i * pagesPerSegment + 1;
             const endPage = Math.min((i + 1) * pagesPerSegment, numPages);
             const segmentOutput = segmentPattern.replace('%04d', (i + 1).toString().padStart(4, '0'));
             await this.splitPdf(pdfFilePath, segmentOutput, startPage, endPage);
         }
-    
+
         const blankPagePath = path.join(outputFolderPath, 'blank-page.pdf');
         console.log(`Creating blank-page.pdf from page 2 of ${pdfFilePath}`);
         await execPromise(`pdftk "${pdfFilePath}" cat 2 output "${blankPagePath}"`);
         console.log(`blank-page.pdf created at ${blankPagePath}`);
-    
+
         const updatedSegments = [];
-    
+
         for (let i = 0; i < segments; i++) {
             const segmentPath = segmentPattern.replace('%04d', (i + 1).toString().padStart(4, '0'));
             if (fs.existsSync(segmentPath)) {
@@ -542,22 +468,22 @@ export default class Booksidian extends Plugin {
                 console.error(`Segment non trouvé: ${segmentPath}`);
             }
         }
-    
+
         const imposedSegmentPattern = path.join(outputFolderPath, `imposition-segment-%d.pdf`);
         const imposedSegments = updatedSegments.filter(filePath => fs.existsSync(filePath));
-    
+
         if (imposedSegments.length > 0) {
             const finalPdfPath = path.join(outputFolderPath, 'final-output.pdf');
             await this.mergePdfs(imposedSegments, finalPdfPath);
-    
+
             const activeFile = this.app.workspace.getActiveFile();
             if (activeFile) {
                 const finalPdfName = `${activeFile.basename}-${this.settings.impositionPath}.pdf`;
                 const finalPdfRenamedPath = path.join(outputFolderPath, finalPdfName);
                 fs.renameSync(finalPdfPath, finalPdfRenamedPath);
                 new Notice(`Imposition appliquée avec succès à : ${finalPdfRenamedPath}`);
-    
-                await this.cleanupFiles([
+
+                await this.cleanupTempFiles([
                     ...imposedSegments,
                     ...imposedSegments.map(file => file.replace('.pdf', '.aux')),
                     ...imposedSegments.map(file => file.replace('.pdf', '.log')),
@@ -569,16 +495,21 @@ export default class Booksidian extends Plugin {
             new Notice('Erreur : Aucun fichier imposé trouvé pour la fusion.');
         }
     }
-    
+
+    getPagesPerSegment(): number {
+        const match = this.settings.impositionPath.match(/(\d+)signature/);
+        return match ? parseInt(match[1], 10) : 16;
+    }
+
     async mergePdfs(inputFiles: string[], outputPdf: string) {
         const existingFiles = inputFiles.filter(file => fs.existsSync(file));
-    
+
         if (existingFiles.length !== inputFiles.length) {
             console.error('Some PDF segments are missing, cannot merge.');
             new Notice('Erreur : Certains segments PDF sont manquants, fusion impossible.');
             return;
         }
-    
+
         const args = `pdftk ${existingFiles.join(' ')} cat output "${outputPdf}"`;
         console.log(`Merging PDFs with command: ${args}`);
         try {
@@ -596,7 +527,7 @@ export default class Booksidian extends Plugin {
     async applyImpositionToSegment(segmentPath: string, impositionTemplatePath: string, outputFolderPath: string, blankPagePath: string, segmentIndex: number): Promise<string> {
         const impositionTexPath = path.join(outputFolderPath, `imposition-segment-${segmentIndex}.tex`);
         let impositionTemplate = await fs.promises.readFile(impositionTemplatePath, 'utf8');
-    
+
         const escapeLaTeXPath = (filePath: string) => {
             return filePath.replace(/\\/g, '/')
                            .replace(/ /g, '\\ ')
@@ -610,48 +541,47 @@ export default class Booksidian extends Plugin {
                            .replace(/\[/g, '\\[')
                            .replace(/\]/g, '\\]');
         };
-    
+
         const escapedSegmentPath = escapeLaTeXPath(segmentPath);
-    
+
         if (!fs.existsSync(segmentPath)) {
             console.error(`Segment non trouvé: ${segmentPath}`);
             new Notice(`Segment non trouvé: ${segmentPath}`);
             return segmentPath;
         }
-    
+
         const pdfinfo = await execPromise(`pdfinfo "${segmentPath}"`);
         const numPagesMatch = pdfinfo.stdout.match(/Pages:\s+(\d+)/);
         const numPages = numPagesMatch ? parseInt(numPagesMatch[1], 10) : 0;
-    
-        const pagesPerSegmentMatch = this.settings.impositionPath.match(/(\d+)signature/);
-        const pagesPerSegment = pagesPerSegmentMatch ? parseInt(pagesPerSegmentMatch[1], 10) : 16;
-    
+
+        const pagesPerSegment = this.getPagesPerSegment();
+
         let finalSegmentPath = segmentPath;
-    
+
         if (numPages > 0 && numPages < pagesPerSegment) {
             const blankPagesNeeded = pagesPerSegment - numPages;
-    
+
             const additionalPagesPath = path.join(outputFolderPath, `additional-pages-${segmentIndex}.pdf`);
             const additionalPagesArgs = `pdftk ${Array(blankPagesNeeded).fill(blankPagePath).join(' ')} cat output "${additionalPagesPath}"`;
             console.log(`Command: ${additionalPagesArgs}`);
             await execPromise(additionalPagesArgs);
             console.log(`additional-pages.pdf created at ${additionalPagesPath}`);
-    
+
             finalSegmentPath = path.join(outputFolderPath, `updated-segment-${segmentIndex}.pdf`);
             const updatedSegmentArgs = `pdftk "${segmentPath}" "${additionalPagesPath}" cat output "${finalSegmentPath}"`;
             console.log(`Command: ${updatedSegmentArgs}`);
             await execPromise(updatedSegmentArgs);
             console.log(`updated-segment-${segmentIndex}.pdf created at ${finalSegmentPath}`);
         }
-    
+
         impositionTemplate = impositionTemplate.replace(/export\.pdf/g, escapeLaTeXPath(finalSegmentPath));
-    
+
         await fs.promises.writeFile(impositionTexPath, impositionTemplate);
-    
+
         const xelatexPath = this.settings.xelatexPath;
         const imposedPdfPath = path.join(outputFolderPath, `imposition-segment-${segmentIndex}.pdf`);
         const impositionArgs = `${xelatexPath} -output-directory="${outputFolderPath}" "${impositionTexPath}"`;
-    
+
         try {
             const { stderr: impositionStderr, stdout: impositionStdout } = await execPromise(impositionArgs, { cwd: outputFolderPath });
             if (impositionStderr) {
@@ -659,15 +589,15 @@ export default class Booksidian extends Plugin {
                 new Notice('Erreur lors de l\'application de l\'imposition');
                 return imposedPdfPath;
             }
-    
+
             console.log(`Imposition stdout: ${impositionStdout}`);
         } catch (error) {
             console.error(`Erreur lors de l'application de l'imposition sur le segment ${segmentIndex}: ${(error as Error).message}`);
             throw error;
         } finally {
-            await this.cleanupFiles([impositionTexPath]);
+            await this.cleanupTempFiles([impositionTexPath]);
         }
-    
+
         return imposedPdfPath;
     }
 
@@ -740,7 +670,7 @@ class BooksidianSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.templateFolderPath)
                 .onChange(async (value) => {
                     this.plugin.settings.templateFolderPath = value;
-                    this.plugin.templates = await this.plugin.loadTemplates(value);
+                    this.plugin.templates = await this.plugin.loadTemplates();
                     await this.plugin.saveData(this.plugin.settings);
                     this.display();
                 }));
@@ -805,5 +735,21 @@ class BooksidianSettingTab extends PluginSettingTab {
                     this.plugin.settings.keepTempFolder = value;
                     await this.plugin.saveData(this.plugin.settings);
                 }));
+    }
+}
+
+async function copyFolderToFlat(destination: string, source: string) {
+    const entries = await fs.promises.readdir(source, { withFileTypes: true });
+    await fs.promises.mkdir(destination, { recursive: true });
+
+    for (let entry of entries) {
+        const srcPath = path.join(source, entry.name);
+        const destPath = path.join(destination, entry.name);
+
+        if (entry.isDirectory()) {
+            await copyFolderToFlat(destination, srcPath);
+        } else {
+            await fs.promises.copyFile(srcPath, destPath);
+        }
     }
 }
