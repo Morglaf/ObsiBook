@@ -14,7 +14,8 @@ interface BooksidianSettings {
     xelatexPath: string;
     outputFolderPath: string;
     impositionPath: string;
-    keepTempFolder: boolean; // Ajout de la propriété
+    keepTempFolder: boolean;
+    [key: string]: boolean | string;
 }
 
 interface FrontMatter {
@@ -29,7 +30,7 @@ const DEFAULT_SETTINGS: BooksidianSettings = {
     xelatexPath: 'xelatex',
     outputFolderPath: '',
     impositionPath: 'non',
-    keepTempFolder: false // Valeur par défaut
+    keepTempFolder: false
 }
 
 const VIEW_TYPE_BOOKSIDIAN = "booksidian-view";
@@ -54,12 +55,14 @@ class BooksidianView extends ItemView {
     plugin: Booksidian;
     containerEl: HTMLElement;
     dynamicFieldsContainer: HTMLElement;
+    toggleFieldsContainer: HTMLElement;
 
     constructor(leaf: WorkspaceLeaf, plugin: Booksidian) {
         super(leaf);
         this.plugin = plugin;
         this.containerEl = this.contentEl;
         this.dynamicFieldsContainer = this.containerEl.createDiv();
+        this.toggleFieldsContainer = this.containerEl.createDiv();
         this.render();
     }
 
@@ -73,6 +76,12 @@ class BooksidianView extends ItemView {
 
     getIcon() {
         return "document";
+    }
+
+    private transformToggleName(toggle: string): string {
+        // Remove the "show" prefix and convert the rest to title case
+        const name = toggle.replace(/^show/, '');
+        return name.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
     }
 
     async render() {
@@ -120,6 +129,7 @@ class BooksidianView extends ItemView {
         containerEl.appendChild(templateDropdown);
 
         this.dynamicFieldsContainer = containerEl.createDiv({ cls: 'dynamic-fields-container' });
+        this.toggleFieldsContainer = containerEl.createDiv({ cls: 'toggle-fields-container' });
 
         containerEl.createEl('label', { text: 'Imposition :' });
         const impositionDropdown = containerEl.createEl('select');
@@ -156,13 +166,15 @@ class BooksidianView extends ItemView {
             }
         };
 
-        const keepTempFolderCheckbox = containerEl.createEl('input', { type: 'checkbox' });
-        keepTempFolderCheckbox.checked = this.plugin.settings.keepTempFolder;
-        keepTempFolderCheckbox.onchange = async () => {
-            this.plugin.settings.keepTempFolder = keepTempFolderCheckbox.checked;
-            await this.plugin.saveData(this.plugin.settings);
-        };
-        containerEl.createEl('label', { text: 'Conserver le dossier temporaire' }).appendChild(keepTempFolderCheckbox);
+        const keepTempFolderSetting = new Setting(containerEl)
+            .setName('Conserver le dossier temporaire')
+            .addToggle(toggle => {
+                toggle.setValue(this.plugin.settings.keepTempFolder)
+                    .onChange(async (value) => {
+                        this.plugin.settings.keepTempFolder = value;
+                        await this.plugin.saveData(this.plugin.settings);
+                    });
+            });
 
         const exportButton = containerEl.createEl('button', { text: 'Exporter' });
         exportButton.onclick = () => this.plugin.exportToLatex();
@@ -179,7 +191,7 @@ class BooksidianView extends ItemView {
         const pluginPath = path.join(basePath, configDir, 'plugins', this.plugin.manifest.id);
         const templateFolderPath = path.join(pluginPath, this.plugin.settings.templateFolderPath);
         const templatePath = path.join(templateFolderPath, templateName);
-
+    
         const fields = await this.plugin.getDynamicFieldsFromTemplate(templatePath);
         this.dynamicFieldsContainer.empty();
         if (fields.length > 0) {
@@ -190,8 +202,32 @@ class BooksidianView extends ItemView {
         } else {
             this.dynamicFieldsContainer.createEl('span', { text: 'Aucun champ dynamique détecté.' });
         }
+    
+        const toggles = await this.plugin.getToggleFieldsFromTemplate(templatePath);
+        this.toggleFieldsContainer.empty();
+        if (toggles.length > 0) {
+            this.toggleFieldsContainer.createEl('label', { text: 'Options :' });
+            toggles.forEach(toggle => {
+                const setting = new Setting(this.toggleFieldsContainer)
+                    .setName(this.transformToggleName(toggle))
+                    .addToggle(toggleComponent => {
+                        toggleComponent.setValue(Boolean(this.plugin.settings[toggle]))
+                            .onChange(async (value) => {
+                                this.plugin.settings[toggle] = value;
+                                await this.plugin.saveData(this.plugin.settings);
+                            });
+                    });
+            });
+        }
     }
+    
+    
+    
 }
+
+
+
+
 
 export default class Booksidian extends Plugin {
     settings: BooksidianSettings = DEFAULT_SETTINGS;
@@ -290,6 +326,19 @@ export default class Booksidian extends Plugin {
         }
         return Array.from(fields);
     }
+    
+    async getToggleFieldsFromTemplate(templatePath: string): Promise<string[]> {
+        const content = await fs.promises.readFile(templatePath, 'utf8');
+        const toggleRegex = /\\newif\\if(\w+)/g;
+        const toggles = new Set<string>();
+        let match;
+        while ((match = toggleRegex.exec(content)) !== null) {
+            toggles.add(`show${match[1][0].toUpperCase()}${match[1].slice(1)}`);
+        }
+        return Array.from(toggles);
+    }
+    
+    
 
     async exportToLatex() {
         const activeFile = this.app.workspace.getActiveFile();
@@ -314,10 +363,8 @@ export default class Booksidian extends Plugin {
             markdown = await this.copyReferencedImages(markdown, tempDir, markdownFilePath);
             fs.writeFileSync(tempMarkdownPath, markdown);
     
-            // Copier les templates et les fonts nécessaires dans le dossier temporaire
             await this.copyTemplatesAndFonts(tempDir);
     
-            // Utiliser le dossier temporaire pour toutes les opérations suivantes
             const yamlData = this.app.metadataCache.getFileCache(activeFile)?.frontmatter;
             const args = `-f markdown -t latex "${tempMarkdownPath}" -o "${path.join(tempDir, activeFile.basename)}.tex"`;
     
@@ -337,6 +384,15 @@ export default class Booksidian extends Plugin {
             fields.forEach(field => {
                 const value = yamlData?.[field] || field;
                 template = template.replace(new RegExp(`\\{\\{${field}\\}\\}`, 'g'), value);
+            });
+    
+            const toggles = await this.getToggleFieldsFromTemplate(latexTemplatePath);
+            toggles.forEach(toggle => {
+                const variableName = toggle.slice(4); // Remove 'show' prefix
+                const trueFalseRegex = new RegExp(`\\\\${variableName}(true|false)`, 'g');
+                template = template.replace(trueFalseRegex, ''); // Remove existing true/false lines
+                const value = this.settings[toggle] ? `\\${variableName}true` : `\\${variableName}false`;
+                template = template.replace(new RegExp(`\\\\newif\\\\if${variableName}\\b`, 'g'), `\\newif\\if${variableName}\n${value}`);
             });
     
             const contentPath = path.join(tempDir, `${activeFile.basename}.tex`);
@@ -372,12 +428,14 @@ export default class Booksidian extends Plugin {
             new Notice(`Error during export: ${errorMessage}`);
         } finally {
             this.cleanupFiles([tempMarkdownPath]);
-            // Nettoyer le dossier temporaire si nécessaire
             if (!this.settings.keepTempFolder) {
                 fs.rmdirSync(tempDir, { recursive: true });
             }
         }
     }
+    
+    
+    
     
     
     
@@ -399,7 +457,6 @@ export default class Booksidian extends Plugin {
             }
         }
     }
-    
 
     async copyReferencedImages(markdown: string, tempDir: string, markdownFilePath: string): Promise<string> {
         const imageRegex = /!\[\[([^\]]+)\]\]/g;
@@ -407,10 +464,9 @@ export default class Booksidian extends Plugin {
         let match;
         const updatedMarkdown = markdown.replace(imageRegex, (match, p1) => {
             const srcPath = path.isAbsolute(p1) ? p1 : path.join((this.app.vault.adapter as any).getBasePath(), p1);
-            const altSrcPath = path.join(markdownDir, p1);  // Path relative to the markdown file
+            const altSrcPath = path.join(markdownDir, p1);
             const destPath = path.join(tempDir, path.basename(p1));
             
-            // Check if the image exists at either location and copy it
             const existsAtSrcPath = fs.existsSync(srcPath);
             const existsAtAltSrcPath = fs.existsSync(altSrcPath);
             
@@ -429,9 +485,6 @@ export default class Booksidian extends Plugin {
         });
         return updatedMarkdown;
     }
-    
-    
-    
 
     async cleanupFiles(files: string[]) {
         for (const file of files) {
@@ -450,7 +503,6 @@ export default class Booksidian extends Plugin {
             }
         }
     }
-    
 
     async applyImposition(pdfFilePath: string, outputFolderPath: string) {
         const basePath = (this.app.vault.adapter as any).getBasePath();
@@ -473,7 +525,6 @@ export default class Booksidian extends Plugin {
             await this.splitPdf(pdfFilePath, segmentOutput, startPage, endPage);
         }
     
-        // Créer le fichier blank-page.pdf à partir de la page 2 du fichier original
         const blankPagePath = path.join(outputFolderPath, 'blank-page.pdf');
         console.log(`Creating blank-page.pdf from page 2 of ${pdfFilePath}`);
         await execPromise(`pdftk "${pdfFilePath}" cat 2 output "${blankPagePath}"`);
