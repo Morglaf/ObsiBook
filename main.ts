@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS: BooksidianSettings = {
     xelatexPath: 'xelatex',
     outputFolderPath: '',
     impositionPath: 'non',
+    impositionType: 'signature',
     keepTempFolder: false
 }
 
@@ -65,7 +66,7 @@ class BooksidianView extends ItemView {
     async render() {
         const { containerEl } = this;
         containerEl.empty();
-
+    
         const style = document.createElement('style');
         style.textContent = `
             .booksidian-export-panel {
@@ -88,10 +89,10 @@ class BooksidianView extends ItemView {
             }
         `;
         document.head.appendChild(style);
-
+    
         containerEl.addClass('booksidian-export-panel');
         containerEl.createEl('h2', { text: 'Booksidian Export' });
-
+    
         containerEl.createEl('label', { text: 'Template LaTeX :' });
         const templateDropdown = containerEl.createEl('select');
         this.plugin.templates.forEach(template => {
@@ -102,15 +103,17 @@ class BooksidianView extends ItemView {
         templateDropdown.onchange = async () => {
             this.plugin.settings.latexTemplatePath = templateDropdown.value;
             await this.plugin.saveData(this.plugin.settings);
-            await this.updateDynamicFields(templateDropdown.value);
+            if (templateDropdown.value) {
+                await this.updateDynamicFields(templateDropdown.value);
+            }
         };
         containerEl.appendChild(templateDropdown);
-
+    
         this.dynamicFieldsContainer = containerEl.createDiv({ cls: 'dynamic-fields-container' });
         this.toggleFieldsContainer = containerEl.createDiv({ cls: 'toggle-fields-container' });
-
+    
         containerEl.createEl('label', { text: 'Imposition :' });
-        const impositionDropdown = containerEl.createEl('select');
+        const impositionDropdown = containerEl.createEl('select', { attr: { imposition: '' } });
         impositionDropdown.createEl('option', { text: 'Non', value: 'non' });
         this.plugin.impositions.forEach(imposition => {
             const option = impositionDropdown.createEl('option', { text: imposition });
@@ -122,7 +125,7 @@ class BooksidianView extends ItemView {
             await this.plugin.saveData(this.plugin.settings);
         };
         containerEl.appendChild(impositionDropdown);
-
+    
         containerEl.createEl('label', { text: 'Chemin d\'exportation :' });
         const outputPathWrapper = containerEl.createDiv();
         const outputPathInput = outputPathWrapper.createEl('input', { type: 'text', placeholder: 'Output folder path' });
@@ -131,7 +134,7 @@ class BooksidianView extends ItemView {
             this.plugin.settings.outputFolderPath = outputPathInput.value;
             await this.plugin.saveData(this.plugin.settings);
         };
-
+    
         const selectOutputButton = outputPathWrapper.createEl('button', { text: 'Sélectionner' });
         selectOutputButton.onclick = async () => {
             const result = await remote.dialog.showOpenDialog({
@@ -143,7 +146,7 @@ class BooksidianView extends ItemView {
                 await this.plugin.saveData(this.plugin.settings);
             }
         };
-
+    
         const keepTempFolderSetting = new Setting(containerEl)
             .setName('Conserver le dossier temporaire')
             .addToggle(toggle => {
@@ -153,17 +156,26 @@ class BooksidianView extends ItemView {
                         await this.plugin.saveData(this.plugin.settings);
                     });
             });
-
+    
         const exportButton = containerEl.createEl('button', { text: 'Exporter' });
         exportButton.onclick = () => this.plugin.exportToLatex();
         containerEl.appendChild(exportButton);
-
+    
         if (this.plugin.settings.latexTemplatePath) {
             await this.updateDynamicFields(this.plugin.settings.latexTemplatePath);
         }
     }
+    
+    
+    
+    
+    
 
     async updateDynamicFields(templateName: string) {
+        if (!templateName) {
+            return;
+        }
+    
         const templatePath = this.plugin.getTemplatePath(templateName);
     
         const fields = await this.plugin.getDynamicFieldsFromTemplate(templatePath);
@@ -193,8 +205,37 @@ class BooksidianView extends ItemView {
                     });
             });
         }
+    
+        // Extraire le format du template sélectionné
+        const templateParts = templateName.split('-');
+        if (templateParts.length < 2) {
+            new Notice("Le format du nom du template est incorrect.");
+            return;
+        }
+        const templateFormat = templateParts[1].replace('.tex', '');
+    
+        console.log(`Template format extracted: ${templateFormat}`); // Debug log
+    
+        const filteredImpositions = this.plugin.impositions.filter(imposition => imposition.includes(templateFormat));
+    
+        console.log(`Filtered impositions: ${filteredImpositions}`); // Debug log
+    
+        const impositionDropdown = this.containerEl.querySelector('select[imposition]') as HTMLSelectElement;
+        impositionDropdown.empty();
+        impositionDropdown.createEl('option', { text: 'Non', value: 'non' });
+        filteredImpositions.forEach(imposition => {
+            const option = impositionDropdown.createEl('option', { text: imposition });
+            option.value = imposition;
+        });
+        impositionDropdown.value = this.plugin.settings.impositionPath;
     }
+    
+    
+    
+    
+    
 }
+
 
 export default class Booksidian extends Plugin {
     settings: BooksidianSettings = DEFAULT_SETTINGS;
