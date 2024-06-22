@@ -407,7 +407,13 @@ export default class Booksidian extends Plugin {
                 await this.applyImposition(pdfFilePath, this.settings.outputFolderPath);
             }
     
-            this.cleanupTempFiles([latexFilePath, tempMarkdownPath]);
+            const additionalTempFiles = [
+                path.join(tempDir, 'rearranged.pdf'),
+                path.join(tempDir, 'extended.pdf'),
+                path.join(tempDir, 'blank-pages.pdf')
+            ];
+    
+            this.cleanupTempFiles([latexFilePath, tempMarkdownPath, ...additionalTempFiles]);
     
         } catch (error) {
             const errorMessage = (error instanceof Error) ? error.message : String(error);
@@ -415,10 +421,18 @@ export default class Booksidian extends Plugin {
             new Notice(`Error during export: ${errorMessage}`);
         } finally {
             if (!this.settings.keepTempFolder) {
-                fs.rmdirSync(tempDir, { recursive: true });
+                try {
+                    if (fs.existsSync(tempDir)) {
+                        fs.rmdirSync(tempDir, { recursive: true });
+                    }
+                } catch (error) {
+                    console.error('Error deleting temp folder:', error);
+                }
             }
         }
     }
+    
+    
     
 
     async copyTemplatesAndFonts(tempDir: string) {
@@ -492,23 +506,60 @@ export default class Booksidian extends Plugin {
         return tempBlankPagePath;
     }
 
-
+    async rearrangePagesForCheval(pdfFilePath: string, outputFolderPath: string, segmentSize: number, blankPagePath: string): Promise<string> {
+        let numPages = await this.getNumberOfPages(pdfFilePath);
+        const imposedPages: number[] = [];
+        const totalAdjustedPages = Math.ceil(numPages / segmentSize) * segmentSize;
+        const blankPagesNeeded = totalAdjustedPages - numPages;
+        let processedPdfPath = pdfFilePath;
+    
+        if (blankPagesNeeded > 0) {
+            // Ajouter des pages vierges à la fin du document
+            const blankPagesPath = path.join(outputFolderPath, `blank-pages.pdf`);
+            const blankPagesArgs = `pdftk ${Array(blankPagesNeeded).fill(blankPagePath).join(' ')} cat output "${blankPagesPath}"`;
+            await execPromise(blankPagesArgs);
+    
+            const extendedPdfPath = path.join(outputFolderPath, `extended.pdf`);
+            const extendArgs = `pdftk "${pdfFilePath}" "${blankPagesPath}" cat output "${extendedPdfPath}"`;
+            await execPromise(extendArgs);
+    
+            processedPdfPath = extendedPdfPath;
+            numPages = totalAdjustedPages;
+        }
+    
+        const front = Array.from({ length: numPages / 2 }, (_, i) => i + 1);
+        const back = Array.from({ length: numPages / 2 }, (_, i) => numPages - i);
+    
+        for (let i = 0; i < front.length; i++) {
+            imposedPages.push(back[i], front[i]);
+        }
+    
+        const uniquePages = new Set(imposedPages);
+        if (uniquePages.size !== imposedPages.length) {
+            console.error(`Duplicate pages found: ${imposedPages}`);
+            throw new Error("Duplicate pages found in rearranged order");
+        }
+    
+        const rearrangedPdfPath = path.join(outputFolderPath, 'rearranged.pdf');
+        const pagesStr = imposedPages.join(' ');
+    
+        const args = `pdftk "${processedPdfPath}" cat ${pagesStr} output "${rearrangedPdfPath}"`;
+        await execPromise(args);
+    
+        return rearrangedPdfPath;
+    }
+    
+    
+    
     async applyImposition(pdfFilePath: string, outputFolderPath: string) {
         const { pluginPath } = this.getBasePaths();
         const impositionFolderPath = path.join(pluginPath, 'imposition');
         const impositionTemplatePath = path.join(impositionFolderPath, this.settings.impositionPath);
     
         const pagesPerSegment = this.getPagesPerSegment();
-        const numPages = await this.getNumberOfPages(pdfFilePath);
-        const segments = Math.ceil(numPages / pagesPerSegment);
+        let numPages = await this.getNumberOfPages(pdfFilePath);
+        let segments = Math.ceil(numPages / pagesPerSegment);
         const segmentPattern = path.join(outputFolderPath, `segment-%04d.pdf`);
-    
-        for (let i = 0; i < segments; i++) {
-            const startPage = i * pagesPerSegment + 1;
-            const endPage = Math.min((i + 1) * pagesPerSegment, numPages);
-            const segmentOutput = segmentPattern.replace('%04d', (i + 1).toString().padStart(4, '0'));
-            await this.splitPdf(pdfFilePath, segmentOutput, startPage, endPage);
-        }
     
         const templateParts = this.settings.latexTemplatePath.split('-');
         if (templateParts.length < 2) {
@@ -521,8 +572,24 @@ export default class Booksidian extends Plugin {
         if (!fs.existsSync(tempDir)) {
             fs.mkdirSync(tempDir, { recursive: true });
         }
-        
+    
         const blankPagePath = await this.copyBlankPageToTemp(templateFormat, tempDir);
+    
+        let processedPdfPath = pdfFilePath;
+    
+        if (this.settings.impositionPath.includes('cheval')) {
+            processedPdfPath = await this.rearrangePagesForCheval(pdfFilePath, outputFolderPath, pagesPerSegment, blankPagePath);
+            // Mettre à jour numPages après réarrangement
+            numPages = await this.getNumberOfPages(processedPdfPath);
+            segments = Math.ceil(numPages / pagesPerSegment);
+        }
+    
+        for (let i = 0; i < segments; i++) {
+            const startPage = i * pagesPerSegment + 1;
+            const endPage = Math.min((i + 1) * pagesPerSegment, numPages);
+            const segmentOutput = segmentPattern.replace('%04d', (i + 1).toString().padStart(4, '0'));
+            await this.splitPdf(processedPdfPath, segmentOutput, startPage, endPage);
+        }
     
         const updatedSegments = [];
     
@@ -561,18 +628,21 @@ export default class Booksidian extends Plugin {
             new Notice('Erreur : Aucun fichier imposé trouvé pour la fusion.');
         }
     
-        // Supprimez ce bloc de code :
-        // if (!this.settings.keepTempFolder) {
-        //     fs.rmdirSync(tempDir, { recursive: true });
-        // }
+        // Suppression du dossier temp déplacée dans `exportToLatex`
     }
     
     
     
     
+    
+    
+    
+    
+
+    
 
     getPagesPerSegment(): number {
-        const match = this.settings.impositionPath.match(/(\d+)signature/);
+        const match = this.settings.impositionPath.match(/(\d+)(signature|cheval)/);
         return match ? parseInt(match[1], 10) : 16;
     }
 
@@ -675,6 +745,7 @@ export default class Booksidian extends Plugin {
     
         return imposedPdfPath;
     }
+    
     
     
     
