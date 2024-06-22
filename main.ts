@@ -336,45 +336,45 @@ export default class Booksidian extends Plugin {
             new Notice('No active file to export');
             return;
         }
-
+    
         let markdown = await this.app.vault.read(activeFile);
         const pandocPath = this.settings.pandocPath;
         const { basePath } = this.getBasePaths();
         const tempDir = path.join(this.settings.outputFolderPath, 'temp');
         const markdownFilePath = path.join(basePath, activeFile.path);
-
+    
         if (!fs.existsSync(tempDir)) {
             fs.mkdirSync(tempDir, { recursive: true });
         }
-
+    
         const tempMarkdownPath = path.join(tempDir, 'temp.md');
-
+    
         try {
             markdown = await this.copyReferencedImages(markdown, tempDir, markdownFilePath);
             fs.writeFileSync(tempMarkdownPath, markdown);
-
+    
             await this.copyTemplatesAndFonts(tempDir);
-
+    
             const yamlData = this.app.metadataCache.getFileCache(activeFile)?.frontmatter;
             const args = `-f markdown -t latex "${tempMarkdownPath}" -o "${path.join(tempDir, activeFile.basename)}.tex"`;
-
+    
             const { stderr } = await execPromise(`${pandocPath} ${args}`);
             if (stderr) {
                 throw new Error(stderr);
             }
-
+    
             const latexTemplatePath = path.join(tempDir, this.settings.latexTemplatePath);
             if (!latexTemplatePath) {
                 throw new Error('No LaTeX template path specified');
             }
-
+    
             let template = await fs.promises.readFile(latexTemplatePath, 'utf8');
             const fields = await this.getDynamicFieldsFromTemplate(latexTemplatePath);
             fields.forEach(field => {
                 const value = yamlData?.[field] || field;
                 template = template.replace(new RegExp(`\\{\\{${field}\\}\\}`, 'g'), value);
             });
-
+    
             const toggles = await this.getToggleFieldsFromTemplate(latexTemplatePath);
             toggles.forEach(toggle => {
                 const variableName = toggle.slice(4); // Remove 'show' prefix
@@ -383,32 +383,32 @@ export default class Booksidian extends Plugin {
                 const value = this.settings[toggle] ? `\\${variableName}true` : `\\${variableName}false`;
                 template = template.replace(new RegExp(`\\\\newif\\\\if${variableName}\\b`, 'g'), `\\newif\\if${variableName}\n${value}`);
             });
-
+    
             const contentPath = path.join(tempDir, `${activeFile.basename}.tex`);
             const content = await fs.promises.readFile(contentPath, 'utf8');
             template = template.replace('\\input{content.tex}', content);
-
+    
             const latexFilePath = path.join(tempDir, `${activeFile.basename}.tex`);
             await fs.promises.writeFile(latexFilePath, template);
-
+    
             const xelatexPath = this.settings.xelatexPath;
             const pdfFilePath = path.join(this.settings.outputFolderPath, `${activeFile.basename}.pdf`);
             const pdfArgs = `${xelatexPath} -output-directory="${tempDir}" "${latexFilePath}"`;
-
+    
             const { stderr: pdfStderr } = await execPromise(pdfArgs, { cwd: tempDir });
             if (pdfStderr) {
                 throw new Error(pdfStderr);
             }
-
+    
             fs.copyFileSync(path.join(tempDir, `${activeFile.basename}.pdf`), pdfFilePath);
             new Notice(`Converted to PDF successfully at: ${pdfFilePath}`);
-
+    
             if (this.settings.impositionPath !== 'non') {
                 await this.applyImposition(pdfFilePath, this.settings.outputFolderPath);
             }
-
+    
             this.cleanupTempFiles([latexFilePath, tempMarkdownPath]);
-
+    
         } catch (error) {
             const errorMessage = (error instanceof Error) ? error.message : String(error);
             console.error('Error during export:', error);
@@ -419,6 +419,7 @@ export default class Booksidian extends Plugin {
             }
         }
     }
+    
 
     async copyTemplatesAndFonts(tempDir: string) {
         const { pluginPath } = this.getBasePaths();
@@ -474,56 +475,80 @@ export default class Booksidian extends Plugin {
             }
         }
     }
+    
+
+    getBlankPagePath(templateFormat: string): string {
+        const { pluginPath } = this.getBasePaths();
+        return path.join(pluginPath, 'blank', `${templateFormat}-blank.pdf`);
+    }
+
+    async copyBlankPageToTemp(templateFormat: string, tempDir: string): Promise<string> {
+        const blankPagePath = this.getBlankPagePath(templateFormat);
+        if (!fs.existsSync(blankPagePath)) {
+            throw new Error(`Blank page file not found: ${blankPagePath}`);
+        }
+        const tempBlankPagePath = path.join(tempDir, path.basename(blankPagePath));
+        await fs.promises.copyFile(blankPagePath, tempBlankPagePath);
+        return tempBlankPagePath;
+    }
+
 
     async applyImposition(pdfFilePath: string, outputFolderPath: string) {
         const { pluginPath } = this.getBasePaths();
         const impositionFolderPath = path.join(pluginPath, 'imposition');
         const impositionTemplatePath = path.join(impositionFolderPath, this.settings.impositionPath);
-
+    
         const pagesPerSegment = this.getPagesPerSegment();
         const numPages = await this.getNumberOfPages(pdfFilePath);
         const segments = Math.ceil(numPages / pagesPerSegment);
         const segmentPattern = path.join(outputFolderPath, `segment-%04d.pdf`);
-
+    
         for (let i = 0; i < segments; i++) {
             const startPage = i * pagesPerSegment + 1;
             const endPage = Math.min((i + 1) * pagesPerSegment, numPages);
             const segmentOutput = segmentPattern.replace('%04d', (i + 1).toString().padStart(4, '0'));
             await this.splitPdf(pdfFilePath, segmentOutput, startPage, endPage);
         }
-
-        const blankPagePath = path.join(outputFolderPath, 'blank-page.pdf');
-        console.log(`Creating blank-page.pdf from page 2 of ${pdfFilePath}`);
-        await execPromise(`pdftk "${pdfFilePath}" cat 2 output "${blankPagePath}"`);
-        console.log(`blank-page.pdf created at ${blankPagePath}`);
-
+    
+        const templateParts = this.settings.latexTemplatePath.split('-');
+        if (templateParts.length < 2) {
+            new Notice("Le format du nom du template est incorrect.");
+            return;
+        }
+        const templateFormat = templateParts[1].replace('.tex', '');
+    
+        const tempDir = path.join(this.settings.outputFolderPath, 'temp');
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+        
+        const blankPagePath = await this.copyBlankPageToTemp(templateFormat, tempDir);
+    
         const updatedSegments = [];
-
+    
         for (let i = 0; i < segments; i++) {
             const segmentPath = segmentPattern.replace('%04d', (i + 1).toString().padStart(4, '0'));
             if (fs.existsSync(segmentPath)) {
-                console.log(`Applying imposition to segment: ${segmentPath}`);
                 const updatedSegmentPath = await this.applyImpositionToSegment(segmentPath, impositionTemplatePath, outputFolderPath, blankPagePath, i);
                 updatedSegments.push(updatedSegmentPath);
             } else {
                 console.error(`Segment non trouvé: ${segmentPath}`);
             }
         }
-
-        const imposedSegmentPattern = path.join(outputFolderPath, `imposition-segment-%d.pdf`);
+    
         const imposedSegments = updatedSegments.filter(filePath => fs.existsSync(filePath));
-
+    
         if (imposedSegments.length > 0) {
             const finalPdfPath = path.join(outputFolderPath, 'final-output.pdf');
             await this.mergePdfs(imposedSegments, finalPdfPath);
-
+    
             const activeFile = this.app.workspace.getActiveFile();
             if (activeFile) {
-                const finalPdfName = `${activeFile.basename}-${this.settings.impositionPath}.pdf`;
+                const finalPdfName = `${activeFile.basename}-${this.settings.impositionPath}`.replace('.tex', '') + '.pdf';
                 const finalPdfRenamedPath = path.join(outputFolderPath, finalPdfName);
                 fs.renameSync(finalPdfPath, finalPdfRenamedPath);
                 new Notice(`Imposition appliquée avec succès à : ${finalPdfRenamedPath}`);
-
+    
                 await this.cleanupTempFiles([
                     ...imposedSegments,
                     ...imposedSegments.map(file => file.replace('.pdf', '.aux')),
@@ -535,7 +560,16 @@ export default class Booksidian extends Plugin {
             console.error('Aucun fichier imposé trouvé pour la fusion.');
             new Notice('Erreur : Aucun fichier imposé trouvé pour la fusion.');
         }
+    
+        // Supprimez ce bloc de code :
+        // if (!this.settings.keepTempFolder) {
+        //     fs.rmdirSync(tempDir, { recursive: true });
+        // }
     }
+    
+    
+    
+    
 
     getPagesPerSegment(): number {
         const match = this.settings.impositionPath.match(/(\d+)signature/);
@@ -568,7 +602,7 @@ export default class Booksidian extends Plugin {
     async applyImpositionToSegment(segmentPath: string, impositionTemplatePath: string, outputFolderPath: string, blankPagePath: string, segmentIndex: number): Promise<string> {
         const impositionTexPath = path.join(outputFolderPath, `imposition-segment-${segmentIndex}.tex`);
         let impositionTemplate = await fs.promises.readFile(impositionTemplatePath, 'utf8');
-
+    
         const escapeLaTeXPath = (filePath: string) => {
             return filePath.replace(/\\/g, '/')
                            .replace(/ /g, '\\ ')
@@ -582,47 +616,44 @@ export default class Booksidian extends Plugin {
                            .replace(/\[/g, '\\[')
                            .replace(/\]/g, '\\]');
         };
-
+    
         const escapedSegmentPath = escapeLaTeXPath(segmentPath);
-
+    
         if (!fs.existsSync(segmentPath)) {
             console.error(`Segment non trouvé: ${segmentPath}`);
             new Notice(`Segment non trouvé: ${segmentPath}`);
             return segmentPath;
         }
-
+    
         const pdfinfo = await execPromise(`pdfinfo "${segmentPath}"`);
         const numPagesMatch = pdfinfo.stdout.match(/Pages:\s+(\d+)/);
         const numPages = numPagesMatch ? parseInt(numPagesMatch[1], 10) : 0;
-
+    
         const pagesPerSegment = this.getPagesPerSegment();
-
+    
         let finalSegmentPath = segmentPath;
-
+        let additionalPagesPath = '';
+    
         if (numPages > 0 && numPages < pagesPerSegment) {
             const blankPagesNeeded = pagesPerSegment - numPages;
-
-            const additionalPagesPath = path.join(outputFolderPath, `additional-pages-${segmentIndex}.pdf`);
+    
+            additionalPagesPath = path.join(outputFolderPath, `additional-pages-${segmentIndex}.pdf`);
             const additionalPagesArgs = `pdftk ${Array(blankPagesNeeded).fill(blankPagePath).join(' ')} cat output "${additionalPagesPath}"`;
-            console.log(`Command: ${additionalPagesArgs}`);
             await execPromise(additionalPagesArgs);
-            console.log(`additional-pages.pdf created at ${additionalPagesPath}`);
-
+    
             finalSegmentPath = path.join(outputFolderPath, `updated-segment-${segmentIndex}.pdf`);
             const updatedSegmentArgs = `pdftk "${segmentPath}" "${additionalPagesPath}" cat output "${finalSegmentPath}"`;
-            console.log(`Command: ${updatedSegmentArgs}`);
             await execPromise(updatedSegmentArgs);
-            console.log(`updated-segment-${segmentIndex}.pdf created at ${finalSegmentPath}`);
         }
-
+    
         impositionTemplate = impositionTemplate.replace(/export\.pdf/g, escapeLaTeXPath(finalSegmentPath));
-
+    
         await fs.promises.writeFile(impositionTexPath, impositionTemplate);
-
+    
         const xelatexPath = this.settings.xelatexPath;
         const imposedPdfPath = path.join(outputFolderPath, `imposition-segment-${segmentIndex}.pdf`);
         const impositionArgs = `${xelatexPath} -output-directory="${outputFolderPath}" "${impositionTexPath}"`;
-
+    
         try {
             const { stderr: impositionStderr, stdout: impositionStdout } = await execPromise(impositionArgs, { cwd: outputFolderPath });
             if (impositionStderr) {
@@ -630,17 +661,23 @@ export default class Booksidian extends Plugin {
                 new Notice('Erreur lors de l\'application de l\'imposition');
                 return imposedPdfPath;
             }
-
+    
             console.log(`Imposition stdout: ${impositionStdout}`);
         } catch (error) {
             console.error(`Erreur lors de l'application de l'imposition sur le segment ${segmentIndex}: ${(error as Error).message}`);
             throw error;
         } finally {
-            await this.cleanupTempFiles([impositionTexPath]);
+            const tempFiles = [impositionTexPath];
+            if (additionalPagesPath) tempFiles.push(additionalPagesPath);
+            if (finalSegmentPath !== segmentPath) tempFiles.push(finalSegmentPath);
+            await this.cleanupTempFiles(tempFiles);
         }
-
+    
         return imposedPdfPath;
     }
+    
+    
+    
 
     async splitPdf(inputPdf: string, outputPattern: string, startPage: number, endPage: number) {
         const args = `pdftk "${inputPdf}" cat ${startPage}-${endPage} output "${outputPattern}"`;
