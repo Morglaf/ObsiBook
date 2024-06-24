@@ -15,7 +15,9 @@ interface BooksidianSettings {
     outputFolderPath: string;
     impositionPath: string;
     keepTempFolder: boolean;
-    [key: string]: boolean | string;
+    compensationEnabled: boolean;
+    paperThickness: number;
+    [key: string]: boolean | string | number;
 }
 
 const DEFAULT_SETTINGS: BooksidianSettings = {
@@ -26,7 +28,9 @@ const DEFAULT_SETTINGS: BooksidianSettings = {
     outputFolderPath: '',
     impositionPath: 'non',
     impositionType: 'signature',
-    keepTempFolder: false
+    keepTempFolder: false,
+    compensationEnabled: false,
+    paperThickness: 0
 }
 
 const VIEW_TYPE_BOOKSIDIAN = "booksidian-view";
@@ -87,6 +91,9 @@ class BooksidianView extends ItemView {
                 padding: 2px 5px;
                 border-radius: 3px;
             }
+            .compensation-container {
+                margin-top: 10px;
+            }
         `;
         document.head.appendChild(style);
     
@@ -123,8 +130,12 @@ class BooksidianView extends ItemView {
         impositionDropdown.onchange = async () => {
             this.plugin.settings.impositionPath = impositionDropdown.value;
             await this.plugin.saveData(this.plugin.settings);
+            this.renderCompensationSettings(compensationContainer);
         };
         containerEl.appendChild(impositionDropdown);
+    
+        const compensationContainer = containerEl.createDiv({ cls: 'compensation-container' });
+        this.renderCompensationSettings(compensationContainer);
     
         containerEl.createEl('label', { text: 'Chemin d\'exportation :' });
         const outputPathWrapper = containerEl.createDiv();
@@ -165,9 +176,63 @@ class BooksidianView extends ItemView {
             await this.updateDynamicFields(this.plugin.settings.latexTemplatePath);
         }
     }
+     
+    
+
+    renderCompensationSettings(parentEl: HTMLElement) {
+        // Retirer l'ancien toggle de compensation s'il existe
+        const existingCompensationToggle = parentEl.querySelector('.compensation-toggle-setting');
+        if (existingCompensationToggle) {
+            existingCompensationToggle.remove();
+        }
+    
+        // Vérifier si l'imposition actuelle est "cheval"
+        if (this.plugin.settings.impositionPath.includes('cheval')) {
+            const compensationToggleSetting = new Setting(parentEl)
+                .setName('Compensation')
+                .setDesc('Activer la compensation pour l\'imposition cheval')
+                .addToggle(toggle => {
+                    toggle.setValue(this.plugin.settings.compensationEnabled)
+                        .onChange(async (value) => {
+                            this.plugin.settings.compensationEnabled = value;
+                            await this.plugin.saveData(this.plugin.settings);
+                            this.renderPaperThicknessSetting(parentEl);
+                        });
+                });
+    
+            compensationToggleSetting.settingEl.addClass('compensation-toggle-setting');
+        }
+    
+        // Toujours appeler cette méthode pour gérer l'affichage de l'épaisseur du papier
+        this.renderPaperThicknessSetting(parentEl);
+    }
     
     
     
+
+    renderPaperThicknessSetting(parentEl: HTMLElement) {
+        // Retirer l'ancien champ d'épaisseur du papier s'il existe
+        const paperThicknessSetting = parentEl.querySelector('.paper-thickness-setting');
+        if (paperThicknessSetting) {
+            paperThicknessSetting.remove();
+        }
+    
+        // Vérifier si la compensation est activée et si l'imposition est "cheval"
+        if (this.plugin.settings.compensationEnabled && this.plugin.settings.impositionPath.includes('cheval')) {
+            const paperThicknessSetting = new Setting(parentEl)
+                .setName('Épaisseur du papier')
+                .setDesc('Indiquer l\'épaisseur du papier en mm')
+                .addText(text => {
+                    text.setPlaceholder('0.10')
+                        .setValue(this.plugin.settings.paperThickness.toString())
+                        .onChange(async (value) => {
+                            this.plugin.settings.paperThickness = parseFloat(value) || 0;
+                            await this.plugin.saveData(this.plugin.settings);
+                        });
+                });
+            paperThicknessSetting.settingEl.addClass('paper-thickness-setting');
+        }
+    }
     
     
 
@@ -175,9 +240,9 @@ class BooksidianView extends ItemView {
         if (!templateName) {
             return;
         }
-    
+
         const templatePath = this.plugin.getTemplatePath(templateName);
-    
+
         const fields = await this.plugin.getDynamicFieldsFromTemplate(templatePath);
         this.dynamicFieldsContainer.empty();
         if (fields.length > 0) {
@@ -188,7 +253,7 @@ class BooksidianView extends ItemView {
         } else {
             this.dynamicFieldsContainer.createEl('span', { text: 'Aucun champ dynamique détecté.' });
         }
-    
+
         const toggles = await this.plugin.getToggleFieldsFromTemplate(templatePath);
         this.toggleFieldsContainer.empty();
         if (toggles.length > 0) {
@@ -205,7 +270,7 @@ class BooksidianView extends ItemView {
                     });
             });
         }
-    
+
         // Extraire le format du template sélectionné
         const templateParts = templateName.split('-');
         if (templateParts.length < 2) {
@@ -213,13 +278,13 @@ class BooksidianView extends ItemView {
             return;
         }
         const templateFormat = templateParts[1].replace('.tex', '');
-    
+
         console.log(`Template format extracted: ${templateFormat}`); // Debug log
-    
+
         const filteredImpositions = this.plugin.impositions.filter(imposition => imposition.includes(templateFormat));
-    
+
         console.log(`Filtered impositions: ${filteredImpositions}`); // Debug log
-    
+
         const impositionDropdown = this.containerEl.querySelector('select[imposition]') as HTMLSelectElement;
         impositionDropdown.empty();
         impositionDropdown.createEl('option', { text: 'Non', value: 'non' });
@@ -229,13 +294,7 @@ class BooksidianView extends ItemView {
         });
         impositionDropdown.value = this.plugin.settings.impositionPath;
     }
-    
-    
-    
-    
-    
 }
-
 
 export default class Booksidian extends Plugin {
     settings: BooksidianSettings = DEFAULT_SETTINGS;
@@ -318,7 +377,7 @@ export default class Booksidian extends Plugin {
         }
         return Array.from(fields);
     }
-    
+
     async getToggleFieldsFromTemplate(templatePath: string): Promise<string[]> {
         const content = await fs.promises.readFile(templatePath, 'utf8');
         const toggleRegex = /\\newif\\if(\w+)/g;
@@ -336,45 +395,45 @@ export default class Booksidian extends Plugin {
             new Notice('No active file to export');
             return;
         }
-    
+
         let markdown = await this.app.vault.read(activeFile);
         const pandocPath = this.settings.pandocPath;
         const { basePath } = this.getBasePaths();
         const tempDir = path.join(this.settings.outputFolderPath, 'temp');
         const markdownFilePath = path.join(basePath, activeFile.path);
-    
+
         if (!fs.existsSync(tempDir)) {
             fs.mkdirSync(tempDir, { recursive: true });
         }
-    
+
         const tempMarkdownPath = path.join(tempDir, 'temp.md');
-    
+
         try {
             markdown = await this.copyReferencedImages(markdown, tempDir, markdownFilePath);
             fs.writeFileSync(tempMarkdownPath, markdown);
-    
+
             await this.copyTemplatesAndFonts(tempDir);
-    
+
             const yamlData = this.app.metadataCache.getFileCache(activeFile)?.frontmatter;
             const args = `-f markdown -t latex "${tempMarkdownPath}" -o "${path.join(tempDir, activeFile.basename)}.tex"`;
-    
+
             const { stderr } = await execPromise(`${pandocPath} ${args}`);
             if (stderr) {
                 throw new Error(stderr);
             }
-    
+
             const latexTemplatePath = path.join(tempDir, this.settings.latexTemplatePath);
             if (!latexTemplatePath) {
                 throw new Error('No LaTeX template path specified');
             }
-    
+
             let template = await fs.promises.readFile(latexTemplatePath, 'utf8');
             const fields = await this.getDynamicFieldsFromTemplate(latexTemplatePath);
             fields.forEach(field => {
                 const value = yamlData?.[field] || field;
                 template = template.replace(new RegExp(`\\{\\{${field}\\}\\}`, 'g'), value);
             });
-    
+
             const toggles = await this.getToggleFieldsFromTemplate(latexTemplatePath);
             toggles.forEach(toggle => {
                 const variableName = toggle.slice(4); // Remove 'show' prefix
@@ -383,38 +442,38 @@ export default class Booksidian extends Plugin {
                 const value = this.settings[toggle] ? `\\${variableName}true` : `\\${variableName}false`;
                 template = template.replace(new RegExp(`\\\\newif\\\\if${variableName}\\b`, 'g'), `\\newif\\if${variableName}\n${value}`);
             });
-    
+
             const contentPath = path.join(tempDir, `${activeFile.basename}.tex`);
             const content = await fs.promises.readFile(contentPath, 'utf8');
             template = template.replace('\\input{content.tex}', content);
-    
+
             const latexFilePath = path.join(tempDir, `${activeFile.basename}.tex`);
             await fs.promises.writeFile(latexFilePath, template);
-    
+
             const xelatexPath = this.settings.xelatexPath;
             const pdfFilePath = path.join(this.settings.outputFolderPath, `${activeFile.basename}.pdf`);
             const pdfArgs = `${xelatexPath} -output-directory="${tempDir}" "${latexFilePath}"`;
-    
+
             const { stderr: pdfStderr } = await execPromise(pdfArgs, { cwd: tempDir });
             if (pdfStderr) {
                 throw new Error(pdfStderr);
             }
-    
+
             fs.copyFileSync(path.join(tempDir, `${activeFile.basename}.pdf`), pdfFilePath);
             new Notice(`Converted to PDF successfully at: ${pdfFilePath}`);
-    
+
             if (this.settings.impositionPath !== 'non') {
                 await this.applyImposition(pdfFilePath, this.settings.outputFolderPath);
             }
-    
+
             const additionalTempFiles = [
                 path.join(tempDir, 'rearranged.pdf'),
                 path.join(tempDir, 'extended.pdf'),
                 path.join(tempDir, 'blank-pages.pdf')
             ];
-    
+
             this.cleanupTempFiles([latexFilePath, tempMarkdownPath, ...additionalTempFiles]);
-    
+
         } catch (error) {
             const errorMessage = (error instanceof Error) ? error.message : String(error);
             console.error('Error during export:', error);
@@ -431,9 +490,6 @@ export default class Booksidian extends Plugin {
             }
         }
     }
-    
-    
-    
 
     async copyTemplatesAndFonts(tempDir: string) {
         const { pluginPath } = this.getBasePaths();
@@ -457,10 +513,10 @@ export default class Booksidian extends Plugin {
             const srcPath = path.isAbsolute(p1) ? p1 : path.join((this.app.vault.adapter as any).getBasePath(), p1);
             const altSrcPath = path.join(markdownDir, p1);
             const destPath = path.join(tempDir, path.basename(p1));
-            
+
             const existsAtSrcPath = fs.existsSync(srcPath);
             const existsAtAltSrcPath = fs.existsSync(altSrcPath);
-            
+
             if (existsAtSrcPath || existsAtAltSrcPath) {
                 const finalSrcPath = existsAtSrcPath ? srcPath : altSrcPath;
                 fs.promises.copyFile(finalSrcPath, destPath).catch(err => {
@@ -489,7 +545,6 @@ export default class Booksidian extends Plugin {
             }
         }
     }
-    
 
     getBlankPagePath(templateFormat: string): string {
         const { pluginPath } = this.getBasePaths();
@@ -512,45 +567,42 @@ export default class Booksidian extends Plugin {
         const totalAdjustedPages = Math.ceil(numPages / segmentSize) * segmentSize;
         const blankPagesNeeded = totalAdjustedPages - numPages;
         let processedPdfPath = pdfFilePath;
-    
+
         if (blankPagesNeeded > 0) {
-            // Ajouter des pages vierges à la fin du document
             const blankPagesPath = path.join(outputFolderPath, `blank-pages.pdf`);
             const blankPagesArgs = `pdftk ${Array(blankPagesNeeded).fill(blankPagePath).join(' ')} cat output "${blankPagesPath}"`;
             await execPromise(blankPagesArgs);
-    
+
             const extendedPdfPath = path.join(outputFolderPath, `extended.pdf`);
             const extendArgs = `pdftk "${pdfFilePath}" "${blankPagesPath}" cat output "${extendedPdfPath}"`;
             await execPromise(extendArgs);
-    
+
             processedPdfPath = extendedPdfPath;
             numPages = totalAdjustedPages;
         }
-    
+
         const front = Array.from({ length: numPages / 2 }, (_, i) => i + 1);
         const back = Array.from({ length: numPages / 2 }, (_, i) => numPages - i);
-    
+
         for (let i = 0; i < front.length; i++) {
             imposedPages.push(back[i], front[i]);
         }
-    
+
         const uniquePages = new Set(imposedPages);
         if (uniquePages.size !== imposedPages.length) {
             console.error(`Duplicate pages found: ${imposedPages}`);
             throw new Error("Duplicate pages found in rearranged order");
         }
-    
+
         const rearrangedPdfPath = path.join(outputFolderPath, 'rearranged.pdf');
         const pagesStr = imposedPages.join(' ');
-    
+
         const args = `pdftk "${processedPdfPath}" cat ${pagesStr} output "${rearrangedPdfPath}"`;
         await execPromise(args);
-    
+
         return rearrangedPdfPath;
     }
-    
-    
-    
+
     async applyImposition(pdfFilePath: string, outputFolderPath: string) {
         const { pluginPath } = this.getBasePaths();
         const impositionFolderPath = path.join(pluginPath, 'imposition');
@@ -596,7 +648,7 @@ export default class Booksidian extends Plugin {
         for (let i = 0; i < segments; i++) {
             const segmentPath = segmentPattern.replace('%04d', (i + 1).toString().padStart(4, '0'));
             if (fs.existsSync(segmentPath)) {
-                const updatedSegmentPath = await this.applyImpositionToSegment(segmentPath, impositionTemplatePath, outputFolderPath, blankPagePath, i);
+                const updatedSegmentPath = await this.applyImpositionToSegment(segmentPath, impositionTemplatePath, outputFolderPath, blankPagePath, i, segments);
                 updatedSegments.push(updatedSegmentPath);
             } else {
                 console.error(`Segment non trouvé: ${segmentPath}`);
@@ -631,15 +683,6 @@ export default class Booksidian extends Plugin {
         // Suppression du dossier temp déplacée dans `exportToLatex`
     }
     
-    
-    
-    
-    
-    
-    
-    
-
-    
 
     getPagesPerSegment(): number {
         const match = this.settings.impositionPath.match(/(\d+)(signature|cheval)/);
@@ -669,22 +712,22 @@ export default class Booksidian extends Plugin {
         }
     }
 
-    async applyImpositionToSegment(segmentPath: string, impositionTemplatePath: string, outputFolderPath: string, blankPagePath: string, segmentIndex: number): Promise<string> {
+    async applyImpositionToSegment(segmentPath: string, impositionTemplatePath: string, outputFolderPath: string, blankPagePath: string, segmentIndex: number, totalSegments: number): Promise<string> {
         const impositionTexPath = path.join(outputFolderPath, `imposition-segment-${segmentIndex}.tex`);
         let impositionTemplate = await fs.promises.readFile(impositionTemplatePath, 'utf8');
     
         const escapeLaTeXPath = (filePath: string) => {
             return filePath.replace(/\\/g, '/')
-                           .replace(/ /g, '\\ ')
-                           .replace(/_/g, '\\_')
-                           .replace(/\$/g, '\\$')
-                           .replace(/#/g, '\\#')
-                           .replace(/{/g, '\\{')
-                           .replace(/}/g, '\\}')
-                           .replace(/&/g, '\\&')
-                           .replace(/%/g, '\\%')
-                           .replace(/\[/g, '\\[')
-                           .replace(/\]/g, '\\]');
+                .replace(/ /g, '\\ ')
+                .replace(/_/g, '\\_')
+                .replace(/\$/g, '\\$')
+                .replace(/#/g, '\\#')
+                .replace(/{/g, '\\{')
+                .replace(/}/g, '\\}')
+                .replace(/&/g, '\\&')
+                .replace(/%/g, '\\%')
+                .replace(/\[/g, '\\[')
+                .replace(/\]/g, '\\]');
         };
     
         const escapedSegmentPath = escapeLaTeXPath(segmentPath);
@@ -700,6 +743,9 @@ export default class Booksidian extends Plugin {
         const numPages = numPagesMatch ? parseInt(numPagesMatch[1], 10) : 0;
     
         const pagesPerSegment = this.getPagesPerSegment();
+    
+        console.log(`Total segments: ${totalSegments}`);
+        console.log(`Segment index: ${segmentIndex}`);
     
         let finalSegmentPath = segmentPath;
         let additionalPagesPath = '';
@@ -717,6 +763,22 @@ export default class Booksidian extends Plugin {
         }
     
         impositionTemplate = impositionTemplate.replace(/export\.pdf/g, escapeLaTeXPath(finalSegmentPath));
+    
+        // Extract initial compensation value from the template
+        const initialCompensationMatch = impositionTemplate.match(/\\newcommand{\\compensation}{([^}]+)}/);
+        const initialCompensation = initialCompensationMatch ? parseFloat(initialCompensationMatch[1].replace('mm', '')) : 0;
+    
+        console.log(`Initial compensation: ${initialCompensation}mm`);
+    
+        // Apply compensation calculation if enabled
+        let compensation = '0mm';
+        if (this.settings.compensationEnabled) {
+            const paperThickness = this.settings.paperThickness;
+            const calculatedCompensation = ((totalSegments - segmentIndex - 1) * (2 * paperThickness)) + initialCompensation;
+            compensation = `${calculatedCompensation.toFixed(2)}mm`;
+            console.log(`Compensation for segment ${segmentIndex}: ${compensation} (calculated from (totalSegments - segmentIndex - 1) * (2 * paperThickness) + initialCompensation)`);
+        }
+        impositionTemplate = impositionTemplate.replace(/\\newcommand{\\compensation}{[^}]+}/, `\\newcommand{\\compensation}{${compensation}}`);
     
         await fs.promises.writeFile(impositionTexPath, impositionTemplate);
     
@@ -745,6 +807,8 @@ export default class Booksidian extends Plugin {
     
         return imposedPdfPath;
     }
+    
+    
     
     
     
@@ -884,6 +948,32 @@ class BooksidianSettingTab extends PluginSettingTab {
                     this.plugin.settings.keepTempFolder = value;
                     await this.plugin.saveData(this.plugin.settings);
                 }));
+
+        new Setting(containerEl)
+            .setName('Compensation')
+            .setDesc('Activer la compensation pour l\'imposition cheval')
+            .addToggle(toggle => {
+                toggle.setValue(this.plugin.settings.compensationEnabled)
+                    .onChange(async (value) => {
+                        this.plugin.settings.compensationEnabled = value;
+                        await this.plugin.saveData(this.plugin.settings);
+                        this.display(); // Refresh to show/hide paper thickness setting
+                    });
+            });
+
+        if (this.plugin.settings.compensationEnabled) {
+            new Setting(containerEl)
+                .setName('Épaisseur du papier')
+                .setDesc('Indiquer l\'épaisseur du papier en mm')
+                .addText(text => {
+                    text.setPlaceholder('0.10')
+                        .setValue(this.plugin.settings.paperThickness.toString())
+                        .onChange(async (value) => {
+                            this.plugin.settings.paperThickness = parseFloat(value) || 0;
+                            await this.plugin.saveData(this.plugin.settings);
+                        });
+                });
+        }
     }
 }
 
