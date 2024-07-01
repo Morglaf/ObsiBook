@@ -17,6 +17,8 @@ interface BooksidianSettings {
     keepTempFolder: boolean;
     compensationEnabled: boolean;
     paperThickness: number;
+    coverPath: string;
+    spineThickness: number;
     [key: string]: boolean | string | number;
 }
 
@@ -30,7 +32,9 @@ const DEFAULT_SETTINGS: BooksidianSettings = {
     impositionType: 'signature',
     keepTempFolder: false,
     compensationEnabled: false,
-    paperThickness: 0
+    paperThickness: 0,
+    coverPath: '',
+    spineThickness: 0
 }
 
 const VIEW_TYPE_BOOKSIDIAN = "booksidian-view";
@@ -39,6 +43,7 @@ class BooksidianView extends ItemView {
     plugin: Booksidian;
     containerEl: HTMLElement;
     dynamicFieldsContainer: HTMLElement;
+    dynamicFieldsContainerCover: HTMLElement;
     toggleFieldsContainer: HTMLElement;
 
     constructor(leaf: WorkspaceLeaf, plugin: Booksidian) {
@@ -46,6 +51,7 @@ class BooksidianView extends ItemView {
         this.plugin = plugin;
         this.containerEl = this.contentEl;
         this.dynamicFieldsContainer = this.containerEl.createDiv();
+        this.dynamicFieldsContainerCover = this.containerEl.createDiv(); // Ajoutez cette ligne
         this.toggleFieldsContainer = this.containerEl.createDiv();
         this.render();
     }
@@ -116,7 +122,7 @@ class BooksidianView extends ItemView {
         };
         containerEl.appendChild(templateDropdown);
     
-        this.dynamicFieldsContainer = containerEl.createDiv({ cls: 'dynamic-fields-container' });
+        this.dynamicFieldsContainer = containerEl.createDiv({ cls: 'dynamic-fields-container' }); // Champs dynamiques pour template
         this.toggleFieldsContainer = containerEl.createDiv({ cls: 'toggle-fields-container' });
     
         containerEl.createEl('label', { text: 'Imposition :' });
@@ -172,12 +178,76 @@ class BooksidianView extends ItemView {
         exportButton.onclick = () => this.plugin.exportToLatex();
         containerEl.appendChild(exportButton);
     
+        // Ajoutez le générateur de couverture
+        await this.renderCoverGenerator(containerEl);
+    
         if (this.plugin.settings.latexTemplatePath) {
             await this.updateDynamicFields(this.plugin.settings.latexTemplatePath);
         }
     }
-     
+
+    async renderCoverGenerator(containerEl: HTMLElement) {
+        containerEl.createEl('h3', { text: 'Générateur de couverture' });
     
+        containerEl.createEl('label', { text: 'Sélectionner une couverture :' });
+        const coverDropdown = containerEl.createEl('select');
+        this.plugin.covers.forEach(cover => {
+            const option = coverDropdown.createEl('option', { text: cover });
+            option.value = cover;
+        });
+        coverDropdown.value = this.plugin.settings.coverPath;
+        coverDropdown.onchange = async () => {
+            this.plugin.settings.coverPath = coverDropdown.value;
+            await this.plugin.saveData(this.plugin.settings);
+            if (coverDropdown.value) {
+                await this.updateCoverFields(coverDropdown.value);
+            }
+        };
+        containerEl.appendChild(coverDropdown);
+    
+        const dynamicFieldsContainerCover = containerEl.createDiv({ cls: 'dynamic-fields-container-cover' }); // Champs dynamiques pour couverture
+        this.dynamicFieldsContainerCover = dynamicFieldsContainerCover;
+    
+        const spineThicknessSetting = new Setting(containerEl)
+            .setName('Épaisseur de la tranche')
+            .setDesc('Indiquer l\'épaisseur de la tranche en mm')
+            .addText(text => {
+                text.setPlaceholder('0.00')
+                    .setValue(this.plugin.settings.spineThickness.toString())
+                    .onChange(async (value) => {
+                        this.plugin.settings.spineThickness = parseFloat(value) || 0;
+                        await this.plugin.saveData(this.plugin.settings);
+                    });
+            });
+    
+        const generateCoverButton = containerEl.createEl('button', { text: 'Générer la couverture' });
+        generateCoverButton.onclick = () => this.plugin.generateCover();
+        containerEl.appendChild(generateCoverButton);
+    
+        if (this.plugin.settings.coverPath) {
+            await this.updateCoverFields(this.plugin.settings.coverPath);
+        }
+    }
+    
+    async updateCoverFields(coverName: string) {
+        if (!coverName) {
+            return;
+        }
+    
+        const coverPath = this.plugin.getCoverPath(coverName);
+    
+        const fields = await this.plugin.getDynamicFieldsFromTemplate(coverPath);
+        this.dynamicFieldsContainerCover.empty();
+        if (fields.length > 0) {
+            this.dynamicFieldsContainerCover.createEl('label', { text: 'Champs dynamiques détectés de la couverture :' });
+            fields.forEach(field => {
+                this.dynamicFieldsContainerCover.createEl('span', { text: field, cls: 'dynamic-field' });
+            });
+        } else {
+            this.dynamicFieldsContainerCover.createEl('span', { text: 'Aucun champ dynamique détecté.' });
+        }
+    }
+
 
     renderCompensationSettings(parentEl: HTMLElement) {
         // Retirer l'ancien toggle de compensation s'il existe
@@ -207,9 +277,6 @@ class BooksidianView extends ItemView {
         this.renderPaperThicknessSetting(parentEl);
     }
     
-    
-    
-
     renderPaperThicknessSetting(parentEl: HTMLElement) {
         // Retirer l'ancien champ d'épaisseur du papier s'il existe
         const paperThicknessSetting = parentEl.querySelector('.paper-thickness-setting');
@@ -233,8 +300,6 @@ class BooksidianView extends ItemView {
             paperThicknessSetting.settingEl.addClass('paper-thickness-setting');
         }
     }
-    
-    
 
     async updateDynamicFields(templateName: string) {
         if (!templateName) {
@@ -294,12 +359,15 @@ class BooksidianView extends ItemView {
         });
         impositionDropdown.value = this.plugin.settings.impositionPath;
     }
+
+    
 }
 
 export default class Booksidian extends Plugin {
     settings: BooksidianSettings = DEFAULT_SETTINGS;
     templates: string[] = [];
     impositions: string[] = [];
+    covers: string[] = [];
 
     async onload() {
         console.log('Loading Booksidian plugin');
@@ -307,6 +375,7 @@ export default class Booksidian extends Plugin {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
         this.templates = await this.loadTemplates();
         this.impositions = await this.loadImpositions();
+        this.covers = await this.loadCovers();
 
         this.registerView(
             VIEW_TYPE_BOOKSIDIAN,
@@ -330,6 +399,11 @@ export default class Booksidian extends Plugin {
         return path.join(pluginPath, this.settings.templateFolderPath, templateName);
     }
 
+    getCoverPath(coverName: string) {
+        const { pluginPath } = this.getBasePaths();
+        return path.join(pluginPath, 'cover', coverName);
+    }
+
     initLeaf() {
         if (this.app.workspace.getLeavesOfType(VIEW_TYPE_BOOKSIDIAN).length === 0) {
             this.app.workspace.getRightLeaf(false)?.setViewState({
@@ -349,6 +423,10 @@ export default class Booksidian extends Plugin {
 
     async loadImpositions(): Promise<string[]> {
         return this.loadFilesFromFolder('imposition', '.tex');
+    }
+
+    async loadCovers(): Promise<string[]> {
+        return this.loadFilesFromFolder('cover', '.tex');
     }
 
     async loadFilesFromFolder(folderPath: string, extension: string): Promise<string[]> {
@@ -373,7 +451,9 @@ export default class Booksidian extends Plugin {
         const fields = new Set<string>();
         let match;
         while ((match = fieldRegex.exec(content)) !== null) {
-            fields.add(match[1]);
+            if (match[1] !== 'spineThickness') { // Exclude spineThickness
+                fields.add(match[1]);
+            }
         }
         return Array.from(fields);
     }
@@ -395,45 +475,49 @@ export default class Booksidian extends Plugin {
             new Notice('No active file to export');
             return;
         }
-
+    
         let markdown = await this.app.vault.read(activeFile);
         const pandocPath = this.settings.pandocPath;
         const { basePath } = this.getBasePaths();
         const tempDir = path.join(this.settings.outputFolderPath, 'temp');
         const markdownFilePath = path.join(basePath, activeFile.path);
-
+    
         if (!fs.existsSync(tempDir)) {
             fs.mkdirSync(tempDir, { recursive: true });
         }
-
+    
         const tempMarkdownPath = path.join(tempDir, 'temp.md');
-
+    
         try {
             markdown = await this.copyReferencedImages(markdown, tempDir, markdownFilePath);
             fs.writeFileSync(tempMarkdownPath, markdown);
-
+    
             await this.copyTemplatesAndFonts(tempDir);
-
+    
             const yamlData = this.app.metadataCache.getFileCache(activeFile)?.frontmatter;
+            if (yamlData) {
+                await this.copyReferencedImagesInYaml(yamlData, tempDir, markdownFilePath);
+            }
+    
             const args = `-f markdown -t latex "${tempMarkdownPath}" -o "${path.join(tempDir, activeFile.basename)}.tex"`;
-
+    
             const { stderr } = await execPromise(`${pandocPath} ${args}`);
             if (stderr) {
                 throw new Error(stderr);
             }
-
+    
             const latexTemplatePath = path.join(tempDir, this.settings.latexTemplatePath);
             if (!latexTemplatePath) {
                 throw new Error('No LaTeX template path specified');
             }
-
+    
             let template = await fs.promises.readFile(latexTemplatePath, 'utf8');
             const fields = await this.getDynamicFieldsFromTemplate(latexTemplatePath);
             fields.forEach(field => {
                 const value = yamlData?.[field] || field;
                 template = template.replace(new RegExp(`\\{\\{${field}\\}\\}`, 'g'), value);
             });
-
+    
             const toggles = await this.getToggleFieldsFromTemplate(latexTemplatePath);
             toggles.forEach(toggle => {
                 const variableName = toggle.slice(4); // Remove 'show' prefix
@@ -442,38 +526,38 @@ export default class Booksidian extends Plugin {
                 const value = this.settings[toggle] ? `\\${variableName}true` : `\\${variableName}false`;
                 template = template.replace(new RegExp(`\\\\newif\\\\if${variableName}\\b`, 'g'), `\\newif\\if${variableName}\n${value}`);
             });
-
+    
             const contentPath = path.join(tempDir, `${activeFile.basename}.tex`);
             const content = await fs.promises.readFile(contentPath, 'utf8');
             template = template.replace('\\input{content.tex}', content);
-
+    
             const latexFilePath = path.join(tempDir, `${activeFile.basename}.tex`);
             await fs.promises.writeFile(latexFilePath, template);
-
+    
             const xelatexPath = this.settings.xelatexPath;
             const pdfFilePath = path.join(this.settings.outputFolderPath, `${activeFile.basename}.pdf`);
             const pdfArgs = `${xelatexPath} -output-directory="${tempDir}" "${latexFilePath}"`;
-
+    
             const { stderr: pdfStderr } = await execPromise(pdfArgs, { cwd: tempDir });
             if (pdfStderr) {
                 throw new Error(pdfStderr);
             }
-
+    
             fs.copyFileSync(path.join(tempDir, `${activeFile.basename}.pdf`), pdfFilePath);
             new Notice(`Converted to PDF successfully at: ${pdfFilePath}`);
-
+    
             if (this.settings.impositionPath !== 'non') {
                 await this.applyImposition(pdfFilePath, this.settings.outputFolderPath);
             }
-
+    
             const additionalTempFiles = [
                 path.join(tempDir, 'rearranged.pdf'),
                 path.join(tempDir, 'extended.pdf'),
                 path.join(tempDir, 'blank-pages.pdf')
             ];
-
+    
             this.cleanupTempFiles([latexFilePath, tempMarkdownPath, ...additionalTempFiles]);
-
+    
         } catch (error) {
             const errorMessage = (error instanceof Error) ? error.message : String(error);
             console.error('Error during export:', error);
@@ -490,6 +574,74 @@ export default class Booksidian extends Plugin {
             }
         }
     }
+    
+
+    async generateCover() {
+        const coverName = this.settings.coverPath;
+        if (!coverName) {
+            new Notice('No cover selected');
+            return;
+        }
+    
+        const coverPath = this.getCoverPath(coverName);
+        const tempDir = path.join(this.settings.outputFolderPath, 'temp');
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+    
+        const activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile) {
+            new Notice('No active file to generate cover');
+            return;
+        }
+    
+        try {
+            let coverTemplate = await fs.promises.readFile(coverPath, 'utf8');
+            const fields = await this.getDynamicFieldsFromTemplate(coverPath);
+            const yamlData = this.app.metadataCache.getFileCache(activeFile)?.frontmatter;
+            fields.forEach(field => {
+                const value = yamlData?.[field] || field;
+                coverTemplate = coverTemplate.replace(new RegExp(`\\{\\{${field}\\}\\}`, 'g'), value);
+            });
+    
+            coverTemplate = coverTemplate.replace('{{spineThickness}}', this.settings.spineThickness ? `${this.settings.spineThickness}mm` : '5.0mm');
+    
+            const coverOutputPath = path.join(this.settings.outputFolderPath, `${coverName.replace('.tex', '')}.pdf`);
+            const tempCoverPath = path.join(tempDir, 'cover.tex');
+            await fs.promises.writeFile(tempCoverPath, coverTemplate);
+    
+            const xelatexPath = this.settings.xelatexPath;
+    
+            // Commande pour exécuter xelatex
+            const coverArgs = `${xelatexPath} -output-directory="${tempDir}" "${tempCoverPath}"`;
+    
+            // Exécuter la commande xelatex
+            const { stderr: coverStderr } = await execPromise(coverArgs, { cwd: tempDir });
+            if (coverStderr) {
+                throw new Error(coverStderr);
+            }
+    
+            fs.copyFileSync(path.join(tempDir, 'cover.pdf'), coverOutputPath);
+            new Notice(`Couverture générée avec succès à : ${coverOutputPath}`);
+        } catch (error) {
+            const errorMessage = (error instanceof Error) ? error.message : String(error);
+            console.error('Error during cover generation:', error);
+            new Notice(`Error during cover generation: ${errorMessage}`);
+        } finally {
+            if (!this.settings.keepTempFolder) {
+                try {
+                    if (fs.existsSync(tempDir)) {
+                        fs.rmdirSync(tempDir, { recursive: true });
+                    }
+                } catch (error) {
+                    console.error('Error deleting temp folder:', error);
+                }
+            }
+        }
+    }
+    
+    
+    
 
     async copyTemplatesAndFonts(tempDir: string) {
         const { pluginPath } = this.getBasePaths();
@@ -532,6 +684,36 @@ export default class Booksidian extends Plugin {
         });
         return updatedMarkdown;
     }
+
+    async copyReferencedImagesInYaml(yamlData: any, tempDir: string, markdownFilePath: string): Promise<void> {
+        const imageFields = ['cover_image', 'logo']; // Liste des champs YAML qui peuvent contenir des images
+        const markdownDir = path.dirname(markdownFilePath);
+    
+        for (const field of imageFields) {
+            if (yamlData[field]) {
+                const imagePath = yamlData[field];
+                const srcPath = path.isAbsolute(imagePath) ? imagePath : path.join((this.app.vault.adapter as any).getBasePath(), imagePath);
+                const altSrcPath = path.join(markdownDir, imagePath);
+                const destPath = path.join(tempDir, path.basename(imagePath));
+    
+                const existsAtSrcPath = fs.existsSync(srcPath);
+                const existsAtAltSrcPath = fs.existsSync(altSrcPath);
+    
+                if (existsAtSrcPath || existsAtAltSrcPath) {
+                    const finalSrcPath = existsAtSrcPath ? srcPath : altSrcPath;
+                    await fs.promises.copyFile(finalSrcPath, destPath).catch(err => {
+                        console.error(`Failed to copy image: ${finalSrcPath} to ${destPath}`, err);
+                        new Notice(`Failed to copy image: ${finalSrcPath}`);
+                    });
+                } else {
+                    console.error(`Image not found at either location: ${srcPath}, ${altSrcPath}`);
+                    new Notice(`Image not found: ${imagePath}`);
+                }
+            }
+        }
+    }
+    
+
 
     async cleanupTempFiles(files: string[]) {
         for (const file of files) {
@@ -683,7 +865,6 @@ export default class Booksidian extends Plugin {
         // Suppression du dossier temp déplacée dans `exportToLatex`
     }
     
-
     getPagesPerSegment(): number {
         const match = this.settings.impositionPath.match(/(\d+)(signature|cheval)/);
         return match ? parseInt(match[1], 10) : 16;
@@ -807,12 +988,6 @@ export default class Booksidian extends Plugin {
     
         return imposedPdfPath;
     }
-    
-    
-    
-    
-    
-    
 
     async splitPdf(inputPdf: string, outputPattern: string, startPage: number, endPage: number) {
         const args = `pdftk "${inputPdf}" cat ${startPage}-${endPage} output "${outputPattern}"`;
@@ -974,6 +1149,32 @@ class BooksidianSettingTab extends PluginSettingTab {
                         });
                 });
         }
+
+        new Setting(containerEl)
+            .setName('Chemin de couverture')
+            .setDesc('Sélectionnez une couverture')
+            .addDropdown(dropdown => {
+                this.plugin.covers.forEach(cover => {
+                    dropdown.addOption(cover, cover);
+                });
+                dropdown.setValue(this.plugin.settings.coverPath);
+                dropdown.onChange(async (value) => {
+                    this.plugin.settings.coverPath = value;
+                    await this.plugin.saveData(this.plugin.settings);
+                });
+            });
+
+        new Setting(containerEl)
+            .setName('Épaisseur de la tranche')
+            .setDesc('Indiquer l\'épaisseur de la tranche en mm')
+            .addText(text => {
+                text.setPlaceholder('0.00')
+                    .setValue(this.plugin.settings.spineThickness.toString())
+                    .onChange(async (value) => {
+                        this.plugin.settings.spineThickness = parseFloat(value) || 0;
+                        await this.plugin.saveData(this.plugin.settings);
+                    });
+            });
     }
 }
 
