@@ -15,7 +15,8 @@ Before using ObsiBook, ensure you have the following software installed:
 1. Download and install the prerequisites mentioned above.
 2. Clone this repository or download the plugin files.
 3. Place the files in the plugin folder of your Obsidian configuration, usually located at `/.obsidian/plugins/ObsiBook`.
-4. Activate the ObsiBook plugin from the Obsidian settings.
+4. Download the "templates.zip" of the latest release unzip everything into the plugin folder.
+5. Activate the ObsiBook plugin from the Obsidian settings.
 
 ## Usage
 
@@ -47,12 +48,14 @@ Avant d'utiliser ObsiBook, assurez-vous d'avoir installé les logiciels suivants
 2. **MiKTeX** : Une distribution LaTeX pour Windows. Téléchargez et installez depuis [miktex.org](https://miktex.org/download).
 3. **pdftk** : Un outil pour manipuler des fichiers PDF. Téléchargez et installez depuis [pdflabs.com/tools/pdftk-the-pdf-toolkit](https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/).
 
+
 ## Installation
 
 1. Téléchargez et installez les prérequis mentionnés ci-dessus.
 2. Clonez ce dépôt ou téléchargez les fichiers du plugin.
 3. Placez les fichiers dans le dossier des plugins de votre configuration Obsidian, généralement situé à `/.obsidian/plugins/ObsiBook`.
-4. Activez le plugin ObsiBook depuis les paramètres d'Obsidian.
+4. télécharger le "templates.zip" de la derniére release décompresser tout dans le dossier du plugin.
+5. Activez le plugin ObsiBook depuis les paramètres d'Obsidian.
 
 ## Utilisation
 
