@@ -3,7 +3,7 @@
     "name": "Booksidian",
     "version": "0.1.0",
     "minAppVersion": "0.12.0",
-    "description": "A plugin to export the current file in Obsidian to LaTeX, integrate it into another LaTeX file, and export the result to PDF.",
+    "description": "Creating books with obsidian and latex.",
     "author": "Morglaf",
     "authorUrl": "https://github.com/Morglaf/booksidian/tree/master",
     "isDesktopOnly": true
