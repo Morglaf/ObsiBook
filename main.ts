@@ -7,7 +7,7 @@ const { remote } = require('electron');
 
 const execPromise = promisify(exec);
 
-interface BooksidianSettings {
+interface ObsiBookSettings {
     pandocPath: string;
     latexTemplatePath: string;
     templateFolderPath: string;
@@ -22,7 +22,7 @@ interface BooksidianSettings {
     [key: string]: boolean | string | number;
 }
 
-const DEFAULT_SETTINGS: BooksidianSettings = {
+const DEFAULT_SETTINGS: ObsiBookSettings = {
     pandocPath: 'pandoc',
     latexTemplatePath: '',
     templateFolderPath: 'templates',
@@ -37,16 +37,16 @@ const DEFAULT_SETTINGS: BooksidianSettings = {
     spineThickness: 0
 }
 
-const VIEW_TYPE_BOOKSIDIAN = "booksidian-view";
+const VIEW_TYPE_OBSIBOOK = "obsibook-view";
 
-class BooksidianView extends ItemView {
-    plugin: Booksidian;
+class ObsiBookView extends ItemView {
+    plugin: ObsiBook;
     containerEl: HTMLElement;
     dynamicFieldsContainer: HTMLElement;
     dynamicFieldsContainerCover: HTMLElement;
     toggleFieldsContainer: HTMLElement;
 
-    constructor(leaf: WorkspaceLeaf, plugin: Booksidian) {
+    constructor(leaf: WorkspaceLeaf, plugin: ObsiBook) {
         super(leaf);
         this.plugin = plugin;
         this.containerEl = this.contentEl;
@@ -57,11 +57,11 @@ class BooksidianView extends ItemView {
     }
 
     getViewType() {
-        return VIEW_TYPE_BOOKSIDIAN;
+        return VIEW_TYPE_OBSIBOOK;
     }
 
     getDisplayText() {
-        return "Booksidian Export";
+        return "ObsiBook Export";
     }
 
     getIcon() {
@@ -79,14 +79,14 @@ class BooksidianView extends ItemView {
     
         const style = document.createElement('style');
         style.textContent = `
-            .booksidian-export-panel {
+            .obsibook-export-panel {
                 padding: 10px;
             }
-            .booksidian-export-panel > * {
+            .obsibook-export-panel > * {
                 margin-bottom: 10px;
                 display: block;
             }
-            .booksidian-export-panel label {
+            .obsibook-export-panel label {
                 display: block;
                 margin-bottom: 5px;
             }
@@ -103,8 +103,8 @@ class BooksidianView extends ItemView {
         `;
         document.head.appendChild(style);
     
-        containerEl.addClass('booksidian-export-panel');
-        containerEl.createEl('h2', { text: 'Booksidian Export' });
+        containerEl.addClass('obsibook-export-panel');
+        containerEl.createEl('h2', { text: 'ObsiBook Export' });
     
         containerEl.createEl('label', { text: 'Template LaTeX :' });
         const templateDropdown = containerEl.createEl('select');
@@ -363,14 +363,14 @@ class BooksidianView extends ItemView {
     
 }
 
-export default class Booksidian extends Plugin {
-    settings: BooksidianSettings = DEFAULT_SETTINGS;
+export default class ObsiBook extends Plugin {
+    settings: ObsiBookSettings = DEFAULT_SETTINGS;
     templates: string[] = [];
     impositions: string[] = [];
     covers: string[] = [];
 
     async onload() {
-        console.log('Loading Booksidian plugin');
+        console.log('Loading ObsiBook plugin');
 
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
         this.templates = await this.loadTemplates();
@@ -378,13 +378,13 @@ export default class Booksidian extends Plugin {
         this.covers = await this.loadCovers();
 
         this.registerView(
-            VIEW_TYPE_BOOKSIDIAN,
-            (leaf) => new BooksidianView(leaf, this)
+            VIEW_TYPE_OBSIBOOK,
+            (leaf) => new ObsiBookView(leaf, this)
         );
 
         this.app.workspace.onLayoutReady(this.initLeaf.bind(this));
 
-        this.addSettingTab(new BooksidianSettingTab(this.app, this));
+        this.addSettingTab(new ObsiBookSettingTab(this.app, this));
     }
 
     getBasePaths() {
@@ -405,16 +405,16 @@ export default class Booksidian extends Plugin {
     }
 
     initLeaf() {
-        if (this.app.workspace.getLeavesOfType(VIEW_TYPE_BOOKSIDIAN).length === 0) {
+        if (this.app.workspace.getLeavesOfType(VIEW_TYPE_OBSIBOOK).length === 0) {
             this.app.workspace.getRightLeaf(false)?.setViewState({
-                type: VIEW_TYPE_BOOKSIDIAN,
+                type: VIEW_TYPE_OBSIBOOK,
             });
         }
     }
 
     onunload() {
-        console.log('Unloading Booksidian plugin');
-        this.app.workspace.getLeavesOfType(VIEW_TYPE_BOOKSIDIAN).forEach(leaf => leaf.detach());
+        console.log('Unloading ObsiBook plugin');
+        this.app.workspace.getLeavesOfType(VIEW_TYPE_OBSIBOOK).forEach(leaf => leaf.detach());
     }
 
     async loadTemplates(): Promise<string[]> {
@@ -1025,10 +1025,10 @@ export default class Booksidian extends Plugin {
     }
 }
 
-class BooksidianSettingTab extends PluginSettingTab {
-    plugin: Booksidian;
+class ObsiBookSettingTab extends PluginSettingTab {
+    plugin: ObsiBook;
 
-    constructor(app: App, plugin: Booksidian) {
+    constructor(app: App, plugin: ObsiBook) {
         super(app, plugin);
         this.plugin = plugin;
     }
@@ -1037,7 +1037,7 @@ class BooksidianSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        containerEl.createEl('h2', { text: 'Settings for Booksidian plugin' });
+        containerEl.createEl('h2', { text: 'Settings for ObsiBook plugin' });
 
         new Setting(containerEl)
             .setName('Pandoc Path')

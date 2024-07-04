@@ -1,11 +1,11 @@
 {
-    "id": "booksidian",
-    "name": "Booksidian",
+    "id": "obsiBook",
+    "name": "ObsiBook",
     "version": "0.1.0",
     "minAppVersion": "0.12.0",
     "description": "Creating books with obsidian and latex.",
     "author": "Morglaf",
-    "authorUrl": "https://github.com/Morglaf/booksidian/tree/master",
+    "authorUrl": "https://github.com/Morglaf/ObsiBook",
     "isDesktopOnly": true
   }
   
