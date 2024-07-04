@@ -3,7 +3,7 @@
     "name": "ObsiBook",
     "version": "0.1.0",
     "minAppVersion": "0.12.0",
-    "description": "Creating books with obsidian and latex.",
+    "description": "Creating books with latex, Pandoc, MiKTeX, pdftk.",
     "author": "Morglaf",
     "authorUrl": "https://github.com/Morglaf/",
     "isDesktopOnly": true
