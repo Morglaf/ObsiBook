@@ -1,0 +1,96 @@
+\documentclass{article}
+\usepackage{pdfpages}
+\usepackage[margin=0cm, paper=a3paper, landscape, top=5cm]{geometry}
+\usepackage{fontspec}
+\usepackage[french]{babel}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{tikz}
+
+% Utiliser Garamond comme police principale
+\setmainfont{Garamond}[Scale=1.10]
+\newfontfamily\titrefont{Garamond}
+\newfontfamily\headerfont[Scale=0.62]{Garamond}
+
+% Commande pour redimensionner les images à la largeur maximale de la page
+\setkeys{Gin}{width=\linewidth, keepaspectratio}
+
+% Environnement personnalisé pour centrer les images
+\floatstyle{plain}
+\newfloat{inlinefigure}{H}{lof}
+\floatname{inlinefigure}{Figure}
+
+\let\oldincludegraphics\includegraphics
+\renewcommand{\includegraphics}[2][]{%
+  \begin{inlinefigure}
+    \centering
+    \oldincludegraphics[#1]{#2}
+  \end{inlinefigure}%
+}
+
+\newcommand{\tranche}{{{spineThickness}}}
+
+\definecolor{lightgray}{gray}{0.9} % Define light gray color
+
+\begin{document}
+% First side
+\begin{figure}[ht!]
+  \centering
+  \begin{minipage}[t][210mm][t]{143.5mm}
+    \vspace{0.0mm} % Adjust this value to correct the height difference
+    \colorbox{lightgray}{% Add this line
+      \begin{minipage}[t][210mm][t]{\linewidth}
+        \vspace{10mm} % Top margin
+        \hspace{10mm} % Left margin
+        \centering
+        {\Large\titrefont {{titre}}}\\
+        {{auteur}}\\
+      \end{minipage}%
+    }% Add this line
+  \end{minipage}%
+  \hspace{\tranche}
+  \begin{minipage}[t][210mm][t]{143.5mm}
+    \vspace{0.0mm} % Adjust this value to correct the height difference
+    \colorbox{lightgray}{% Add this line
+      \begin{minipage}[t][210mm][t]{\linewidth}
+        \vspace{10mm} % Top margin
+        \hspace{10mm} % Left margin
+        \centering
+        {{edition}}\\
+      \end{minipage}%
+    }% Add this line
+  \end{minipage}%
+\end{figure}
+
+% Ajouter les traits de coupe
+\begin{tikzpicture}[remember picture,overlay]
+    % Taille des traits de coupe
+    \newcommand{\cutsize}{10mm}
+
+    % Traits de coupe aux coins
+    \draw[thick] (current page.south west) ++(0,\cutsize) -- ++(\cutsize,0);
+    \draw[thick] (current page.south west) ++(\cutsize,0) -- ++(0,\cutsize);
+
+    \draw[thick] (current page.south east) ++(0,\cutsize) -- ++(-\cutsize,0);
+    \draw[thick] (current page.south east) ++(-\cutsize,0) -- ++(0,\cutsize);
+
+    \draw[thick] (current page.north west) ++(0,-\cutsize) -- ++(\cutsize,0);
+    \draw[thick] (current page.north west) ++(\cutsize,0) -- ++(0,-\cutsize);
+
+    \draw[thick] (current page.north east) ++(0,-\cutsize) -- ++(-\cutsize,0);
+    \draw[thick] (current page.north east) ++(-\cutsize,0) -- ++(0,-\cutsize);
+
+    % Traits de coupe au centre des bords, en tenant compte de \tranche
+    \draw[thick] (current page.south) ++({0-(\tranche)/2},\cutsize) -- ++(0,-2*\cutsize);
+    \draw[thick] (current page.south) ++({0+(\tranche)/2},\cutsize) -- ++(0,-2*\cutsize);
+
+    \draw[thick] (current page.north) ++({0-(\tranche)/2},-\cutsize) -- ++(0,2*\cutsize);
+    \draw[thick] (current page.north) ++({0+(\tranche)/2},-\cutsize) -- ++(0,2*\cutsize);
+
+
+\end{tikzpicture}
+
+\end{document}

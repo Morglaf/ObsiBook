@@ -1,5 +1,42 @@
 # Booksidian
 
+Booksidian is a plugin for Obsidian that allows you to export your notes in LaTeX format and generate PDF files. It supports the use of LaTeX templates and offers imposition options.
+
+## Prerequisites
+
+Before using Booksidian, ensure you have the following software installed:
+
+1. **Pandoc**: A universal document converter. Download and install from [pandoc.org](https://pandoc.org/installing.html).
+2. **MiKTeX**: A LaTeX distribution for Windows. Download and install from [miktex.org](https://miktex.org/download).
+3. **pdftk**: A tool for manipulating PDF files. Download and install from [pdflabs.com/tools/pdftk-the-pdf-toolkit](https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/).
+
+## Installation
+
+1. Download and install the prerequisites mentioned above.
+2. Clone this repository or download the plugin files.
+3. Place the files in the plugin folder of your Obsidian configuration, usually located at `/.obsidian/plugins/booksidian`.
+4. Activate the Booksidian plugin from the Obsidian settings.
+
+## Usage
+
+1. Open Obsidian and navigate to a note you wish to export.
+2. Use the Booksidian Export panel to select a LaTeX template and configure imposition options.
+3. Click the "Export" button to generate a PDF file from your note.
+
+## Roadmap
+
+### Planned Features
+
+1. **Internationalization**: Adding support for multiple languages to make Booksidian accessible to a wider audience.
+
+## Contribution
+
+Contributions are welcome! If you have suggestions, bugs to report, or features to add, feel free to open an issue or submit a pull request.
+
+
+
+# Booksidian FR
+
 Booksidian est un plugin pour Obsidian qui permet d'exporter vos notes au format LaTeX et de générer des fichiers PDF. Il prend en charge l'utilisation de templates LaTeX et offre des options d'imposition.
 
 ## Prérequis
@@ -28,7 +65,6 @@ Avant d'utiliser Booksidian, assurez-vous d'avoir installé les logiciels suivan
 ### Fonctionnalités prévues
 
 1. **Internationalisation** : Ajout de la prise en charge de plusieurs langues pour rendre Booksidian accessible à un public plus large.
-2. **Générateur de couverture** : Implémentation d'une fonctionnalité permettant de générer automatiquement une couverture pour les documents PDF exportés.
 
 ## Contribution
 

@@ -3,28 +3,29 @@
 \usepackage[margin=0cm, paper=a4paper, landscape]{geometry}
 \usepackage[english]{babel}
 \usepackage{graphicx}
+\newcommand{\compensation}{-1.10mm}
 
 \begin{document}
 % First side
 \begin{figure}[ht!]
-  \raggedright
-  \begin{minipage}[t][143.5mm][t]{148mm}
-    \fbox{\includegraphics[page=1,angle=0,width=\textwidth,trim=0 0 0 0,clip]{export.pdf}}
-  \end{minipage}%
-  \begin{minipage}[t][143.5mm][t]{148mm}
-    \fbox{\includegraphics[page=2,angle=0,width=\textwidth,trim=0 0 0 0,clip]{export.pdf}}
+  \centering
+  \begin{minipage}[t][210mm][t]{143.5mm}
+    \includegraphics[page=1,angle=0,width=\textwidth,trim=0 0 0 0,clip]{export.pdf}
+  \end{minipage}\hspace{\compensation}
+  \begin{minipage}[t][210mm][t]{143.5mm}
+    \includegraphics[page=2,angle=0,width=\textwidth,trim=0 0 0 0,clip]{export.pdf}
   \end{minipage}
 \end{figure}
 \newpage
 
 % Second side
 \begin{figure}[ht!]
-  \raggedleft
-  \begin{minipage}[t][143.5mm][t]{148mm}
-    \fbox{\includegraphics[page=4,angle=0,width=\textwidth,trim=0 0 0 0,clip]{export.pdf}}
-  \end{minipage}%
-  \begin{minipage}[t][143.5mm][t]{148mm}
-    \fbox{\includegraphics[page=3,angle=0,width=\textwidth,trim=0 0 0 0,clip]{export.pdf}}
+  \centering
+  \begin{minipage}[t][210mm][t]{143.5mm}
+    \includegraphics[page=4,angle=0,width=\textwidth,trim=0 0 0 0,clip]{export.pdf}
+  \end{minipage}\hspace{\compensation}
+  \begin{minipage}[t][210mm][t]{143.5mm}
+    \includegraphics[page=3,angle=0,width=\textwidth,trim=0 0 0 0,clip]{export.pdf}
   \end{minipage}
 \end{figure}
 
