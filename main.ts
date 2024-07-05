@@ -248,7 +248,6 @@ class ObsiBookView extends ItemView {
         }
     }
 
-
     renderCompensationSettings(parentEl: HTMLElement) {
         // Retirer l'ancien toggle de compensation s'il existe
         const existingCompensationToggle = parentEl.querySelector('.compensation-toggle-setting');
@@ -344,11 +343,7 @@ class ObsiBookView extends ItemView {
         }
         const templateFormat = templateParts[1].replace('.tex', '');
 
-        console.log(`Template format extracted: ${templateFormat}`); // Debug log
-
         const filteredImpositions = this.plugin.impositions.filter(imposition => imposition.includes(templateFormat));
-
-        console.log(`Filtered impositions: ${filteredImpositions}`); // Debug log
 
         const impositionDropdown = this.containerEl.querySelector('select[imposition]') as HTMLSelectElement;
         impositionDropdown.empty();
@@ -359,8 +354,6 @@ class ObsiBookView extends ItemView {
         });
         impositionDropdown.value = this.plugin.settings.impositionPath;
     }
-
-    
 }
 
 export default class ObsiBook extends Plugin {
@@ -370,8 +363,6 @@ export default class ObsiBook extends Plugin {
     covers: string[] = [];
 
     async onload() {
-        console.log('Loading ObsiBook plugin');
-
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
         this.templates = await this.loadTemplates();
         this.impositions = await this.loadImpositions();
@@ -413,7 +404,6 @@ export default class ObsiBook extends Plugin {
     }
 
     onunload() {
-        console.log('Unloading ObsiBook plugin');
         this.app.workspace.getLeavesOfType(VIEW_TYPE_OBSIBOOK).forEach(leaf => leaf.detach());
     }
 
@@ -433,11 +423,8 @@ export default class ObsiBook extends Plugin {
         const { pluginPath } = this.getBasePaths();
         const fullPath = path.join(pluginPath, folderPath);
 
-        console.log(`Checking for files in: ${fullPath}`);
-
         if (fs.existsSync(fullPath)) {
             const files = fs.readdirSync(fullPath);
-            console.log(`Files found in folder: ${files}`);
             return files.filter(file => file.endsWith(extension));
         } else {
             new Notice(`Folder not found: ${fullPath}`);
@@ -574,7 +561,6 @@ export default class ObsiBook extends Plugin {
             }
         }
     }
-    
 
     async generateCover() {
         const coverName = this.settings.coverPath;
@@ -639,9 +625,6 @@ export default class ObsiBook extends Plugin {
             }
         }
     }
-    
-    
-    
 
     async copyTemplatesAndFonts(tempDir: string) {
         const { pluginPath } = this.getBasePaths();
@@ -677,7 +660,6 @@ export default class ObsiBook extends Plugin {
                 });
                 return `![](${path.basename(p1)})`;
             } else {
-                console.error(`Image not found at either location: ${srcPath}, ${altSrcPath}`);
                 new Notice(`Image not found: ${p1}`);
                 return match;
             }
@@ -702,25 +684,20 @@ export default class ObsiBook extends Plugin {
                 if (existsAtSrcPath || existsAtAltSrcPath) {
                     const finalSrcPath = existsAtSrcPath ? srcPath : altSrcPath;
                     await fs.promises.copyFile(finalSrcPath, destPath).catch(err => {
-                        console.error(`Failed to copy image: ${finalSrcPath} to ${destPath}`, err);
                         new Notice(`Failed to copy image: ${finalSrcPath}`);
                     });
                 } else {
-                    console.error(`Image not found at either location: ${srcPath}, ${altSrcPath}`);
                     new Notice(`Image not found: ${imagePath}`);
                 }
             }
         }
     }
-    
-
 
     async cleanupTempFiles(files: string[]) {
         for (const file of files) {
             try {
                 if (fs.existsSync(file)) {
                     await fs.promises.unlink(file);
-                    console.log(`Deleted file: ${file}`);
                 }
             } catch (error) {
                 console.error(`Failed to delete file: ${file}`, error);
@@ -772,7 +749,6 @@ export default class ObsiBook extends Plugin {
 
         const uniquePages = new Set(imposedPages);
         if (uniquePages.size !== imposedPages.length) {
-            console.error(`Duplicate pages found: ${imposedPages}`);
             throw new Error("Duplicate pages found in rearranged order");
         }
 
@@ -858,11 +834,8 @@ export default class ObsiBook extends Plugin {
                 ]);
             }
         } else {
-            console.error('Aucun fichier imposé trouvé pour la fusion.');
             new Notice('Erreur : Aucun fichier imposé trouvé pour la fusion.');
         }
-    
-        // Suppression du dossier temp déplacée dans `exportToLatex`
     }
     
     getPagesPerSegment(): number {
@@ -874,21 +847,17 @@ export default class ObsiBook extends Plugin {
         const existingFiles = inputFiles.filter(file => fs.existsSync(file));
 
         if (existingFiles.length !== inputFiles.length) {
-            console.error('Some PDF segments are missing, cannot merge.');
             new Notice('Erreur : Certains segments PDF sont manquants, fusion impossible.');
             return;
         }
 
         const args = `pdftk ${existingFiles.join(' ')} cat output "${outputPdf}"`;
-        console.log(`Merging PDFs with command: ${args}`);
         try {
             const { stdout, stderr } = await execPromise(args);
             if (stderr) {
                 throw new Error(stderr);
             }
-            console.log(`Merge output: ${stdout}`);
         } catch (error) {
-            console.error(`Erreur lors de la fusion des PDF: ${(error as Error).message}`);
             throw error;
         }
     }
@@ -914,7 +883,6 @@ export default class ObsiBook extends Plugin {
         const escapedSegmentPath = escapeLaTeXPath(segmentPath);
     
         if (!fs.existsSync(segmentPath)) {
-            console.error(`Segment non trouvé: ${segmentPath}`);
             new Notice(`Segment non trouvé: ${segmentPath}`);
             return segmentPath;
         }
@@ -924,9 +892,6 @@ export default class ObsiBook extends Plugin {
         const numPages = numPagesMatch ? parseInt(numPagesMatch[1], 10) : 0;
     
         const pagesPerSegment = this.getPagesPerSegment();
-    
-        console.log(`Total segments: ${totalSegments}`);
-        console.log(`Segment index: ${segmentIndex}`);
     
         let finalSegmentPath = segmentPath;
         let additionalPagesPath = '';
@@ -949,15 +914,12 @@ export default class ObsiBook extends Plugin {
         const initialCompensationMatch = impositionTemplate.match(/\\newcommand{\\compensation}{([^}]+)}/);
         const initialCompensation = initialCompensationMatch ? parseFloat(initialCompensationMatch[1].replace('mm', '')) : 0;
     
-        console.log(`Initial compensation: ${initialCompensation}mm`);
-    
         // Apply compensation calculation if enabled
         let compensation = '0mm';
         if (this.settings.compensationEnabled) {
             const paperThickness = this.settings.paperThickness;
             const calculatedCompensation = ((totalSegments - segmentIndex - 1) * (2 * paperThickness)) + initialCompensation;
             compensation = `${calculatedCompensation.toFixed(2)}mm`;
-            console.log(`Compensation for segment ${segmentIndex}: ${compensation} (calculated from (totalSegments - segmentIndex - 1) * (2 * paperThickness) + initialCompensation)`);
         }
         impositionTemplate = impositionTemplate.replace(/\\newcommand{\\compensation}{[^}]+}/, `\\newcommand{\\compensation}{${compensation}}`);
     
@@ -968,16 +930,12 @@ export default class ObsiBook extends Plugin {
         const impositionArgs = `${xelatexPath} -output-directory="${outputFolderPath}" "${impositionTexPath}"`;
     
         try {
-            const { stderr: impositionStderr, stdout: impositionStdout } = await execPromise(impositionArgs, { cwd: outputFolderPath });
+            const { stderr: impositionStderr } = await execPromise(impositionArgs, { cwd: outputFolderPath });
             if (impositionStderr) {
-                console.error('Erreur lors de l\'application de l\'imposition:', impositionStderr);
                 new Notice('Erreur lors de l\'application de l\'imposition');
                 return imposedPdfPath;
             }
-    
-            console.log(`Imposition stdout: ${impositionStdout}`);
         } catch (error) {
-            console.error(`Erreur lors de l'application de l'imposition sur le segment ${segmentIndex}: ${(error as Error).message}`);
             throw error;
         } finally {
             const tempFiles = [impositionTexPath];
@@ -991,15 +949,12 @@ export default class ObsiBook extends Plugin {
 
     async splitPdf(inputPdf: string, outputPattern: string, startPage: number, endPage: number) {
         const args = `pdftk "${inputPdf}" cat ${startPage}-${endPage} output "${outputPattern}"`;
-        console.log(`Splitting PDF with command: ${args}`);
         try {
-            const { stdout, stderr } = await execPromise(args);
+            const { stderr } = await execPromise(args);
             if (stderr) {
                 throw new Error(stderr);
             }
-            console.log(`Split output: ${stdout}`);
         } catch (error) {
-            console.error(`Erreur lors de la division du PDF: ${(error as Error).message}`);
             throw error;
         }
     }
@@ -1019,7 +974,6 @@ export default class ObsiBook extends Plugin {
 
             throw new Error('Impossible de déterminer le nombre de pages dans le PDF.');
         } catch (error) {
-            console.error(`Erreur lors de la récupération du nombre de pages: ${(error as Error).message}`);
             throw error;
         }
     }
